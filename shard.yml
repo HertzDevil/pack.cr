@@ -1,0 +1,11 @@
+name: pack.cr
+version: 0.1.0
+
+description: Compile-time (un)pack macros from Perl / Ruby
+
+authors:
+  - Quinton Miller <nicetas.c@gmail.com>
+
+crystal: 0.36.0-dev
+
+license: MIT
