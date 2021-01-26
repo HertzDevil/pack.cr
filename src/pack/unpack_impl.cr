@@ -67,9 +67,9 @@ module Pack::UnpackImpl
 
     {% if "cCsSlLqQiIjJnNvVdfFeEgG".includes?(directive) %}
       {% if directive == 'n' %}
-        {% directive, endianness = 'S', :BigEndian %}
+        {% directive, endianness = 'S', :NetworkEndian %}
       {% elsif directive == 'N' %}
-        {% directive, endianness = 'L', :BigEndian %}
+        {% directive, endianness = 'L', :NetworkEndian %}
       {% elsif directive == 'v' %}
         {% directive, endianness = 'S', :LittleEndian %}
       {% elsif directive == 'V' %}
