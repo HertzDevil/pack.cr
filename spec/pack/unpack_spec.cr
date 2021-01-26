@@ -107,6 +107,18 @@ describe Pack do
         it_unpacks Bytes[0x03, 0xC8, 0x04], "c*", Int8[3, -56, 4]
         it_unpacks Bytes[], "c*", Int8[]
       end
+
+      describe_errors do
+        it "disallows endianness" do
+          expect_error %(Pack.unpack 0, "c<"), "'<' allowed only after directives sSiIlLqQjJ"
+          expect_error %(Pack.unpack 0, "c>"), "'>' allowed only after directives sSiIlLqQjJ"
+        end
+
+        it "disallows native size" do
+          expect_error %(Pack.unpack 0, "c_"), "'_' allowed only after directives sSiIlLqQjJ"
+          expect_error %(Pack.unpack 0, "c!"), "'!' allowed only after directives sSiIlLqQjJ"
+        end
+      end
     end
 
     describe "C" do
