@@ -1,13 +1,38 @@
 # pack.cr
 
-Provides compile-time Crystal macros that mimic Perl and Ruby's `pack` and
-`unpack` functions.
+![Branch state](https://img.shields.io/github/checks-status/HertzDevil/pack.cr/main)
+![Doc state](https://img.shields.io/github/deployments/HertzDevil/pack.cr/github-pages?label=docs)
+![License](https://img.shields.io/github/license/HertzDevil/pack.cr)
 
-Format strings are parsed and translated into sequences of appropriate reads or
-writes during compilation, with full type checking for packing and without "any
-type" unions for unpacking.
+This Crystal library provides macros that transform simple values to and from
+byte sequences according to compile-time format strings, based on Perl and
+Ruby's `pack` and `unpack` functions. Packing enforces full type safety and
+unpacking directly returns extracted values in their specified types.
+
+The library is still under early development.
 
 ## Usage
+
+### `Pack.pack`
+
+```crystal
+require "pack"
+
+# `Pack.pack` returns a new writable `Bytes`
+Pack.pack "csl>", 42_i8, -1000_i16, 1 << 31 # => Bytes[42, 24, 252, 128, 0, 0, 0]
+
+# `Pack.pack_to` writes to an `IO` instance
+File.open("my.bin", "rb") do |f|
+  version = 1_u8
+  total_songs = 5_u8
+  first_song = 1_u8
+  Pack.pack_to f, "U4CCCCS*",
+    {'N', 'E', 'S', 'M'}, 0x1A, version, # 0x1A allowed due to auto-casting
+    total_songs, first_song, [0x8000, 0xE000, 0xE003] of UInt16
+end
+```
+
+### `Pack.unpack`
 
 ```crystal
 require "pack"
@@ -36,19 +61,48 @@ def unpack(buf : Bytes)
   Tuple.new(value1, value2, value3)
 end
 
+# `Pack.unpack` returns a tuple of extracted values
 x1, x2, x3 = Pack.unpack Bytes[0x01, 0xC8, 0x03, 0x04], "cCs"
 x1 # => 1_i8
 x2 # => 200_u8
 x3 # => 1027_i16
 
-x1, x2 = Pack.unpack Bytes[0x41, 0x42, 0x43, 0x31, 0x32, 0x33], "a2U*"
+# No need for further casts
+typeof(x1) # => Int8
+typeof(x2) # => UInt8
+typeof(x3) # => Int16
+
+# Repeat counts and globs become `StaticArray`s and `Array`s
+x1, x2 = Pack.unpack Bytes[1, 0, 2, 0, 3, 0], "c2s>*"
+x1 # => StaticArray[1_i8, 0_i8]
+x2 # => [512_i16, 768_i16]
+
+# Binaries become `Bytes`, UTF-8 values become `Char`s and `String`s
+x1, x2, x3 = Pack.unpack Bytes[0x41, 0x42, 0x43, 0x31, 0x32, 0x33, 0x34], "a2U2U*"
 x1 # => Bytes[65, 66]
-x2 # => "C123"
+x2 # => "C1"
+x3 # => "234"
 ```
 
 ### Current features
 
 * [ ] Packing
+  * [x] Fixed-size integral types (`c` `C` `s` `S` `l` `L` `q` `Q` `n` `N` `v` `V`)
+  * [x] Native integral types (`i` `I` `l` `L` `j` `J`)
+  * [x] Native size modifiers (`_` `!`)
+  * [x] Endianness modifiers (`<` `>`)
+  * [x] Floating-point types (`d` `f` `F` `e` `E` `g` `G`)
+  * [ ] BER-compressed integers (`w`)
+  * [ ] Binary strings (`a` `A` `Z`)
+  * [ ] UTF-8 characters / strings (`U` `U*`)
+  * [ ] Bitstrings and hexstrings (`b` `B` `h` `H`)
+  * [ ] Raw pointers and slices (`p` `P`)
+  * [ ] UU-encoded strings (`u`)
+  * [ ] Base64-encoded strings (`m` `M`)
+  * [ ] String lengths (`/`)
+  * [ ] Offset directives (`@` `x` `X`)
+  * [ ] Aligned offsets (`x!` `X!`)
+  * [ ] Repeat counts and globs (`*`)
 * [ ] Unpacking
   * [x] Fixed-size integral types (`c` `C` `s` `S` `l` `L` `q` `Q` `n` `N` `v` `V`)
   * [x] Native integral types (`i` `I` `l` `L` `j` `J`)
