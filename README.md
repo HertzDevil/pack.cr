@@ -72,7 +72,8 @@ x2 # => "C123"
 
 * Runtime format strings
 * Long double (`D`)
-* Signed `n` `N` `v` `V`
+* Signed modifier (`!`) for `n` `N` `v` `V`
+* Endianness modifiers (`<` `>`) for `d` `f` `F`
 * Checksums (`%`)
 * Command groups (`(` `)` `.`)
 
