@@ -65,8 +65,6 @@ module Pack::UnpackImpl
   macro do_unpack1(directive, native_size, endianness, count, glob)
     {% p [directive, native_size, endianness, count, glob] if false %}
 
-    {% native_size = true if "iIjJ".includes?(directive) %}
-
     {% if "cCsSlLqQiIjJnNvVdfFeEgG".includes?(directive) %}
       {% if directive == 'n' %}
         {% directive, endianness = 'S', :BigEndian %}
@@ -87,7 +85,17 @@ module Pack::UnpackImpl
       {% end %}
 
       {%
-        if native_size
+        if directive == 'i'
+          value_type = ::LibC::Int
+        elsif directive == 'I'
+          value_type = ::LibC::UInt
+        elsif directive == 'j'
+          value_type = ::LibC::Int64T
+        elsif directive == 'J'
+          value_type = ::LibC::UInt64T
+        elsif directive == 'F'
+          value_type = ::LibC::Float32
+        elsif native_size
           if directive == 's'
             value_type = ::LibC::Short
           elsif directive == 'S'
@@ -100,14 +108,6 @@ module Pack::UnpackImpl
             value_type = ::LibC::LongLong
           elsif directive == 'Q'
             value_type = ::LibC::ULongLong
-          elsif directive == 'i'
-            value_type = ::LibC::Int
-          elsif directive == 'I'
-            value_type = ::LibC::UInt
-          elsif directive == 'j'
-            value_type = ::LibC::Int64T
-          elsif directive == 'J'
-            value_type = ::LibC::UInt64T
           end
         else
           if directive == 'c'
@@ -126,12 +126,10 @@ module Pack::UnpackImpl
             value_type = ::Int64
           elsif directive == 'Q'
             value_type = ::UInt64
-          elsif directive == 'd'
-            value_type = ::Float64
           elsif directive == 'f'
             value_type = ::Float32
-          elsif directive == 'F'
-            value_type = ::Float32
+          elsif directive == 'd'
+            value_type = ::Float64
           end
         end
       %}
