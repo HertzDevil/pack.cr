@@ -69,18 +69,49 @@
   </svg>
 </a>pack.cr</h1>
 
-<p>Provides compile-time Crystal macros that mimic Perl and Ruby's <code>pack</code> and
-<code>unpack</code> functions.</p>
+<p><img src="https://img.shields.io/github/checks-status/HertzDevil/pack.cr/main" alt="Branch state"/>
+<img src="https://img.shields.io/github/deployments/HertzDevil/pack.cr/github-pages?label=docs" alt="Doc state"/>
+<img src="https://img.shields.io/github/license/HertzDevil/pack.cr" alt="License"/></p>
 
-<p>Format strings are parsed and translated into sequences of appropriate reads or
-writes during compilation, with full type checking for packing and without "any
-type" unions for unpacking.</p>
+<p>This Crystal library provides macros that transform simple values to and from
+byte sequences according to compile-time format strings, based on Perl and
+Ruby's <code>pack</code> and <code>unpack</code> functions. Packing enforces full type safety and
+unpacking directly returns extracted values in their specified types.</p>
+
+<p>The library is still under early development.</p>
 
 <h2><a id="usage" class="anchor" href="#usage">
   <svg class="octicon-link" aria-hidden="true">
     <use href="#octicon-link"/>
   </svg>
 </a>Usage</h2>
+
+<h3><a id="pack.pack" class="anchor" href="#pack.pack">
+  <svg class="octicon-link" aria-hidden="true">
+    <use href="#octicon-link"/>
+  </svg>
+</a><code>Pack.pack</code></h3>
+
+<pre><code class="language-crystal"><span class="k">require</span> <span class="s">&quot;pack&quot;</span>
+
+<span class="c"># `Pack.pack` returns a new writable `Bytes`</span>
+<span class="t">Pack</span>.pack <span class="s">&quot;csl&gt;&quot;</span>, <span class="n">42_i8</span>, <span class="n">-1000_i16</span>, <span class="n">1</span> <span class="o">&lt;&lt;</span> <span class="n">31</span> <span class="c"># =&gt; Bytes[42, 24, 252, 128, 0, 0, 0]</span>
+
+<span class="c"># `Pack.pack_to` writes to an `IO` instance</span>
+<span class="t">File</span>.open(<span class="s">&quot;my.bin&quot;</span>, <span class="s">&quot;rb&quot;</span>) <span class="k">do</span> <span class="o">|</span>f<span class="o">|</span>
+  version <span class="o">=</span> <span class="n">1_u8</span>
+  total_songs <span class="o">=</span> <span class="n">5_u8</span>
+  first_song <span class="o">=</span> <span class="n">1_u8</span>
+  <span class="t">Pack</span>.pack_to f, <span class="s">&quot;U4CCCCS*&quot;</span>,
+    {<span class="s">&#39;N&#39;</span>, <span class="s">&#39;E&#39;</span>, <span class="s">&#39;S&#39;</span>, <span class="s">&#39;M&#39;</span>}, <span class="n">0x1A</span>, version, <span class="c"># 0x1A allowed due to auto-casting</span>
+    total_songs, first_song, [<span class="n">0x8000</span>, <span class="n">0xE000</span>, <span class="n">0xE003</span>] <span class="k">of</span> <span class="t">UInt16</span>
+<span class="k">end</span></code></pre>
+
+<h3><a id="pack.unpack" class="anchor" href="#pack.unpack">
+  <svg class="octicon-link" aria-hidden="true">
+    <use href="#octicon-link"/>
+  </svg>
+</a><code>Pack.unpack</code></h3>
 
 <pre><code class="language-crystal"><span class="k">require</span> <span class="s">&quot;pack&quot;</span>
 
@@ -108,14 +139,27 @@ type" unions for unpacking.</p>
   <span class="t">Tuple</span>.<span class="k">new</span>(value1, value2, value3)
 <span class="k">end</span>
 
+<span class="c"># `Pack.unpack` returns a tuple of extracted values</span>
 x1, x2, x3 <span class="o">=</span> <span class="t">Pack</span>.unpack <span class="t">Bytes</span>[<span class="n">0x01</span>, <span class="n">0xC8</span>, <span class="n">0x03</span>, <span class="n">0x04</span>], <span class="s">&quot;cCs&quot;</span>
 x1 <span class="c"># =&gt; 1_i8</span>
 x2 <span class="c"># =&gt; 200_u8</span>
 x3 <span class="c"># =&gt; 1027_i16</span>
 
-x1, x2 <span class="o">=</span> <span class="t">Pack</span>.unpack <span class="t">Bytes</span>[<span class="n">0x41</span>, <span class="n">0x42</span>, <span class="n">0x43</span>, <span class="n">0x31</span>, <span class="n">0x32</span>, <span class="n">0x33</span>], <span class="s">&quot;a2U*&quot;</span>
+<span class="c"># No need for further casts</span>
+<span class="k">typeof</span>(x1) <span class="c"># =&gt; Int8</span>
+<span class="k">typeof</span>(x2) <span class="c"># =&gt; UInt8</span>
+<span class="k">typeof</span>(x3) <span class="c"># =&gt; Int16</span>
+
+<span class="c"># Repeat counts and globs become `StaticArray`s and `Array`s</span>
+x1, x2 <span class="o">=</span> <span class="t">Pack</span>.unpack <span class="t">Bytes</span>[<span class="n">1</span>, <span class="n">0</span>, <span class="n">2</span>, <span class="n">0</span>, <span class="n">3</span>, <span class="n">0</span>], <span class="s">&quot;c2s&gt;*&quot;</span>
+x1 <span class="c"># =&gt; StaticArray[1_i8, 0_i8]</span>
+x2 <span class="c"># =&gt; [512_i16, 768_i16]</span>
+
+<span class="c"># Binaries become `Bytes`, UTF-8 values become `Char`s and `String`s</span>
+x1, x2, x3 <span class="o">=</span> <span class="t">Pack</span>.unpack <span class="t">Bytes</span>[<span class="n">0x41</span>, <span class="n">0x42</span>, <span class="n">0x43</span>, <span class="n">0x31</span>, <span class="n">0x32</span>, <span class="n">0x33</span>, <span class="n">0x34</span>], <span class="s">&quot;a2U2U*&quot;</span>
 x1 <span class="c"># =&gt; Bytes[65, 66]</span>
-x2 <span class="c"># =&gt; &quot;C123&quot;</span></code></pre>
+x2 <span class="c"># =&gt; &quot;C1&quot;</span>
+x3 <span class="c"># =&gt; &quot;234&quot;</span></code></pre>
 
 <h3><a id="current-features" class="anchor" href="#current-features">
   <svg class="octicon-link" aria-hidden="true">
@@ -123,7 +167,7 @@ x2 <span class="c"># =&gt; &quot;C123&quot;</span></code></pre>
   </svg>
 </a>Current features</h3>
 
-<ul><li>[ ] Packing</li><li>[ ] Unpacking</li><ul><li>[x] Fixed-size integral types (<code>c</code> <code>C</code> <code>s</code> <code>S</code> <code>l</code> <code>L</code> <code>q</code> <code>Q</code> <code>n</code> <code>N</code> <code>v</code> <code>V</code>)</li><li>[x] Native integral types (<code>i</code> <code>I</code> <code>l</code> <code>L</code> <code>j</code> <code>J</code>)</li><li>[x] Native size modifiers (<code>_</code> <code>!</code>)</li><li>[x] Endianness modifiers (<code><</code> <code>></code>)</li><li>[x] Floating-point types (<code>d</code> <code>f</code> <code>F</code> <code>e</code> <code>E</code> <code>g</code> <code>G</code>)</li><li>[x] BER-compressed integers (<code>w</code>)</li><li>[x] Binary strings (<code>a</code> <code>A</code> <code>Z</code>)</li><li>[x] UTF-8 characters / strings (<code>U</code> <code>U*</code>)</li><li>[x] Bitstrings and hexstrings (<code>b</code> <code>B</code> <code>h</code> <code>H</code>)</li><li>[x] Raw pointers and slices (<code>p</code> <code>P</code>)</li><li>[ ] UU-encoded strings (<code>u</code>)</li><li>[ ] Base64-encoded strings (<code>m</code> <code>M</code>)</li><li>[ ] String lengths (<code>/</code>)</li><li>[x] Offset directives (<code>@</code> <code>x</code> <code>X</code>)</li><li>[ ] Aligned offsets (<code>x!</code> <code>X!</code>)</li><li>[x] Repeat counts and globs (<code>*</code>)</li><li>[ ] Unpacking directly from readable & rewindable <code>IO</code>?</li></ul></ul>
+<ul><li>[ ] Packing</li><ul><li>[x] Fixed-size integral types (<code>c</code> <code>C</code> <code>s</code> <code>S</code> <code>l</code> <code>L</code> <code>q</code> <code>Q</code> <code>n</code> <code>N</code> <code>v</code> <code>V</code>)</li><li>[x] Native integral types (<code>i</code> <code>I</code> <code>l</code> <code>L</code> <code>j</code> <code>J</code>)</li><li>[x] Native size modifiers (<code>_</code> <code>!</code>)</li><li>[x] Endianness modifiers (<code><</code> <code>></code>)</li><li>[x] Floating-point types (<code>d</code> <code>f</code> <code>F</code> <code>e</code> <code>E</code> <code>g</code> <code>G</code>)</li><li>[ ] BER-compressed integers (<code>w</code>)</li><li>[ ] Binary strings (<code>a</code> <code>A</code> <code>Z</code>)</li><li>[ ] UTF-8 characters / strings (<code>U</code> <code>U*</code>)</li><li>[ ] Bitstrings and hexstrings (<code>b</code> <code>B</code> <code>h</code> <code>H</code>)</li><li>[ ] Raw pointers and slices (<code>p</code> <code>P</code>)</li><li>[ ] UU-encoded strings (<code>u</code>)</li><li>[ ] Base64-encoded strings (<code>m</code> <code>M</code>)</li><li>[ ] String lengths (<code>/</code>)</li><li>[ ] Offset directives (<code>@</code> <code>x</code> <code>X</code>)</li><li>[ ] Aligned offsets (<code>x!</code> <code>X!</code>)</li><li>[ ] Repeat counts and globs (<code>*</code>)</li></ul><li>[ ] Unpacking</li><ul><li>[x] Fixed-size integral types (<code>c</code> <code>C</code> <code>s</code> <code>S</code> <code>l</code> <code>L</code> <code>q</code> <code>Q</code> <code>n</code> <code>N</code> <code>v</code> <code>V</code>)</li><li>[x] Native integral types (<code>i</code> <code>I</code> <code>l</code> <code>L</code> <code>j</code> <code>J</code>)</li><li>[x] Native size modifiers (<code>_</code> <code>!</code>)</li><li>[x] Endianness modifiers (<code><</code> <code>></code>)</li><li>[x] Floating-point types (<code>d</code> <code>f</code> <code>F</code> <code>e</code> <code>E</code> <code>g</code> <code>G</code>)</li><li>[x] BER-compressed integers (<code>w</code>)</li><li>[x] Binary strings (<code>a</code> <code>A</code> <code>Z</code>)</li><li>[x] UTF-8 characters / strings (<code>U</code> <code>U*</code>)</li><li>[x] Bitstrings and hexstrings (<code>b</code> <code>B</code> <code>h</code> <code>H</code>)</li><li>[x] Raw pointers and slices (<code>p</code> <code>P</code>)</li><li>[ ] UU-encoded strings (<code>u</code>)</li><li>[ ] Base64-encoded strings (<code>m</code> <code>M</code>)</li><li>[ ] String lengths (<code>/</code>)</li><li>[x] Offset directives (<code>@</code> <code>x</code> <code>X</code>)</li><li>[ ] Aligned offsets (<code>x!</code> <code>X!</code>)</li><li>[x] Repeat counts and globs (<code>*</code>)</li><li>[ ] Unpacking directly from readable & rewindable <code>IO</code>?</li></ul></ul>
 
 <h3><a id="non-features-probably" class="anchor" href="#non-features-probably">
   <svg class="octicon-link" aria-hidden="true">
