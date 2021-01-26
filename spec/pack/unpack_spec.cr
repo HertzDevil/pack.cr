@@ -7,8 +7,28 @@ private macro it_unpacks(bytes, fmt, *values)
   typeof(%result).should eq(typeof(%expected))
 end
 
+FORMAT = ""
+
 describe Pack do
   describe ".unpack" do
+    it "accepts string constants" do
+      it_unpacks Bytes[], FORMAT
+    end
+
+    describe_errors do
+      it "disallows non-string literals" do
+        expect_error %(Pack.unpack 0, 0), "format must be a string literal or constant"
+        expect_error %(Pack.unpack 0, [0]), "format must be a string literal or constant"
+        expect_error %(Pack.unpack 0, '0'), "format must be a string literal or constant"
+        expect_error %(Pack.unpack 0, {0}), "format must be a string literal or constant"
+        expect_error %(Pack.unpack 0, ->{ }), "format must be a string literal or constant"
+      end
+
+      it "disallows non-string constants" do
+        expect_error %(FOO = 1\nPack.unpack 0, FOO), "format must be a string literal or constant"
+      end
+    end
+
     describe "a" do
       it "unpacks Slice(UInt8)'s" do
         it_unpacks Bytes[0x00], "a", Bytes[0x00]

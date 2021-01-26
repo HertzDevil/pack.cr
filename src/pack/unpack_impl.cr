@@ -340,7 +340,7 @@ module Pack
   # Returns a `Tuple` of unpacked values, without flattening directives that
   # contain repeat counts.
   #
-  # *bytes* must be a `Slice(UInt8)`. *fmt* must be a string literal
+  # *bytes* must be a `Slice(UInt8)`. *fmt* must be a string literal or constant
   # representing a valid sequence of unpacking directives.
   #
   # ```
@@ -348,7 +348,12 @@ module Pack
   # Pack.unpack("abcd\x00ef\x00".to_slice, "CCZ*a*")                     # => {StaticArray[97_u8, 98_u8], Bytes[99, 100], Bytes[101, 102, 0]}
   # ```
   macro unpack(bytes, fmt)
-    {% fmt.raise "Format must be a string literal" unless fmt.is_a?(StringLiteral) %}
+    {% if fmt.is_a?(Path) %}
+      {% fmt = fmt.resolve %}
+    {% end %}
+    {% unless fmt.is_a?(StringLiteral) %}
+      {% fmt.raise "format must be a string literal or constant" %}
+    {% end %}
 
     {% directive = nil %}
     {% native_size = false %}
@@ -395,67 +400,67 @@ module Pack
       {% elsif ch == '<' %}
         {% fmt.raise "#{ch} allowed only after directives sSiIlLqQjJ" unless accepts_modifiers %}
         {% fmt.raise "#{ch} allowed only before '*' and count" if glob || count %}
-        {% fmt.raise "Can't use both '<' and '>'" if endianness == :BigEndian %}
+        {% fmt.raise "can't use both '<' and '>'" if endianness == :BigEndian %}
         {% endianness = :LittleEndian %}
       {% elsif ch == '>' %}
         {% fmt.raise "#{ch} allowed only after directives sSiIlLqQjJ" unless accepts_modifiers %}
         {% fmt.raise "#{ch} allowed only before '*' and count" if glob || count %}
-        {% fmt.raise "Can't use both '<' and '>'" if endianness == :LittleEndian %}
+        {% fmt.raise "can't use both '<' and '>'" if endianness == :LittleEndian %}
         {% endianness = :BigEndian %}
 
       {% elsif ch == '*' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
         {% fmt.raise "#{ch} not allowed for '@'" if directive == '@' %}
         {% fmt.raise "#{ch} not allowed for 'P'" if directive == 'P' %}
-        {% fmt.raise "Can't use both '*' and count" if count %}
+        {% fmt.raise "can't use both '*' and count" if count %}
         {% glob = true %}
 
       {% elsif ch == '0' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 0 : 0 %}
       {% elsif ch == '1' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 1 : 1 %}
       {% elsif ch == '2' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 2 : 2 %}
       {% elsif ch == '3' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 3 : 3 %}
       {% elsif ch == '4' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 4 : 4 %}
       {% elsif ch == '5' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 5 : 5 %}
       {% elsif ch == '6' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 6 : 6 %}
       {% elsif ch == '7' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 7 : 7 %}
       {% elsif ch == '8' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 8 : 8 %}
       {% elsif ch == '9' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "Can't use both '*' and count" if glob %}
+        {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 9 : 9 %}
 
       {% elsif ch == 'D' %}
-        {% fmt.raise "Long double is not supported, use 'd' instead" %}
+        {% fmt.raise "long double is not supported, use 'd' instead" %}
 
       {% else %}
-        {% fmt.raise "Unexpected directive: #{ch}" %}
+        {% fmt.raise "unexpected directive: #{ch}" %}
       {% end %}
     {% end %}
 
