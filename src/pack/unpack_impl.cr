@@ -62,8 +62,11 @@ module Pack::UnpackImpl
 
   # accesses `obj` and `byte_offset` from outer scope
   # defines `sz` and `elem_count` in outer scope
-  macro do_unpack1(directive, native_size, endianness, count, glob)
-    {% p [directive, native_size, endianness, count, glob] if false %}
+  macro do_unpack1(command)
+    {% p command if false %}
+
+    {% directive = command[:directive] %}
+    {% endianness = command[:endianness] %}
 
     {% if "cCsSlLqQiIjJnNvVdfFeEgG".includes?(directive) %}
       {% if directive == 'n' %}
@@ -95,7 +98,7 @@ module Pack::UnpackImpl
           value_type = ::LibC::UInt64T
         elsif directive == 'F'
           value_type = ::LibC::Float32
-        elsif native_size
+        elsif command[:bang]
           if directive == 's'
             value_type = ::LibC::Short
           elsif directive == 'S'
@@ -134,15 +137,15 @@ module Pack::UnpackImpl
         end
       %}
 
-      {% converter = ::IO::ByteFormat.constant(endianness) %}
+      {% converter = ::IO::ByteFormat.constant(endianness || :SystemEndian) %}
       sz = sizeof({{ value_type }})
 
-      {% if count %}
+      {% if count = command[:count] %}
         %value = StaticArray({{ value_type }}, {{ count }}).new do |i|
           {{ converter }}.decode({{ value_type }}, obj[byte_offset + sz * i, sz])
         end
         byte_offset += sz * {{ count }}
-      {% elsif glob %}
+      {% elsif command[:glob] %}
         elem_count = (obj.size - byte_offset) // sz
         %value = Array({{ value_type }}).new(elem_count) do |i|
           {{ converter }}.decode({{ value_type }}, obj[byte_offset + sz * i, sz])
@@ -154,13 +157,13 @@ module Pack::UnpackImpl
       {% end %}
 
     {% elsif directive == 'U' %}
-      {% if count %}
+      {% if count = command[:count] %}
         %value = String.build do |b|
           {{ count }}.times do
             b << Pack::UnpackImpl.unpack_utf8
           end
         end
-      {% elsif glob %}
+      {% elsif command[:glob] %}
         %value = String.build do |b|
           while byte_offset < obj.size
             b << Pack::UnpackImpl.unpack_utf8
@@ -171,11 +174,11 @@ module Pack::UnpackImpl
       {% end %}
 
     {% elsif directive == 'w' %}
-      {% if count %}
+      {% if count = command[:count] %}
         %value = StaticArray(UInt64, {{ count }}).new do
           Pack::UnpackImpl.unpack_ber
         end
-      {% elsif glob %}
+      {% elsif command[:glob] %}
         %value = Array(UInt64).new
         while byte_offset < obj.size
           %value << Pack::UnpackImpl.unpack_ber
@@ -185,10 +188,10 @@ module Pack::UnpackImpl
       {% end %}
 
     {% elsif directive == 'a' || directive == 'A' %}
-      {% if glob %}
+      {% if command[:glob] %}
         elem_count = obj.size - byte_offset
       {% else %}
-        elem_count = { obj.size - byte_offset, {{ count || 1 }} }.min
+        elem_count = { obj.size - byte_offset, {{ command[:count] || 1 }} }.min
       {% end %}
       %value = obj[byte_offset, elem_count]
       byte_offset += elem_count
@@ -202,7 +205,7 @@ module Pack::UnpackImpl
       {% end %}
 
     {% elsif directive == 'Z' %}
-      {% if glob %}
+      {% if command[:glob] %}
         elem_count = 0
         sz = byte_offset
         while sz < obj.size
@@ -213,7 +216,7 @@ module Pack::UnpackImpl
         %value = obj[byte_offset, elem_count]
         byte_offset = sz
       {% else %}
-        elem_count = { obj.size - byte_offset, {{ count || 1 }} }.min
+        elem_count = { obj.size - byte_offset, {{ command[:count] || 1 }} }.min
         %value = obj[byte_offset, elem_count]
         byte_offset += elem_count
 
@@ -225,10 +228,10 @@ module Pack::UnpackImpl
       {% end %}
 
     {% elsif directive == 'h' || directive == 'H' %}
-      {% if glob %}
+      {% if command[:glob] %}
         elem_count = (obj.size - byte_offset) * 2
       {% else %}
-        elem_count = {{ count || 1 }}
+        elem_count = {{ command[:count] || 1 }}
       {% end %}
 
       %value = String.build do |b|
@@ -255,10 +258,10 @@ module Pack::UnpackImpl
       end
 
     {% elsif directive == 'b' || directive == 'B' %}
-      {% if glob %}
+      {% if command[:glob] %}
         elem_count = (obj.size - byte_offset) * 8
       {% else %}
-        elem_count = {{ count || 1 }}
+        elem_count = {{ command[:count] || 1 }}
       {% end %}
 
       %value = String.build do |b|
@@ -294,7 +297,7 @@ module Pack::UnpackImpl
 
     {% elsif directive == 'P' %}
       sz = sizeof(Void*)
-      {% if count %}
+      {% if count = command[:count] %}
         %value = Slice.new(obj[byte_offset, sz].to_unsafe.as(UInt8**).value, {{ count }})
       {% else %}
         %value = obj[byte_offset, sz].to_unsafe.as(Void**).value
@@ -302,7 +305,7 @@ module Pack::UnpackImpl
       byte_offset += sz
     {% elsif directive == 'p' %}
       sz = sizeof(UInt8*)
-      {% if count %}
+      {% if count = command[:count] %}
         %value = String.new(obj[byte_offset, sz].to_unsafe.as(UInt8**).value, {{ count }})
       {% else %}
         %value = String.new(obj[byte_offset, sz].to_unsafe.as(UInt8**).value)
@@ -310,18 +313,18 @@ module Pack::UnpackImpl
       byte_offset += sz
 
     {% elsif directive == '@' %}
-      byte_offset = {{ count || 0 }}
+      byte_offset = {{ command[:count] || 0 }}
     {% elsif directive == 'x' %}
-      {% if glob %}
+      {% if command[:glob] %}
         byte_offset = obj.size
       {% else %}
-        byte_offset += {{ count || 1 }}
+        byte_offset += {{ command[:count] || 1 }}
       {% end %}
     {% elsif directive == 'X' %}
-      {% if glob %}
+      {% if command[:glob] %}
         byte_offset = 0
       {% else %}
-        byte_offset = { 0, byte_offset - {{ count || 1 }} }.max
+        byte_offset = { 0, byte_offset - {{ command[:count] || 1 }} }.max
       {% end %}
 
     {% else %}
@@ -356,100 +359,90 @@ module Pack
     {% end %}
 
     {% commands = [] of ASTNode %}
-    {% directive = nil %}
-    {% native_size = false %}
-    {% endianness = :SystemEndian %}
-    {% count = nil %}
-    {% glob = false %}
+    {% current = {directive: nil} %}
 
     {% chars = fmt.chars %}
     {% chars << ' ' %}
     {% accepts_modifiers = false %}
-    {% directive_start = nil %}
 
     {% for ch, index in chars %}
       {% if "cCsSlLqQiIjJnNvVdfFeEgGUwaAZbBhHumMpP@xX \n\t\f\v\r".includes?(ch) %}
-        {% if directive %}
-          {% name = chars[directive_start...index].join("") %}
-          {% commands << {name, directive, native_size, endianness, count, glob, index} %}
+        {% if current[:directive] %}
+          {% current[:name] = chars[current[:index]...index].join("") %}
+          {% commands << current %}
         {% end %}
 
-        {% directive = nil %}
-        {% native_size = false %}
-        {% endianness = :SystemEndian %}
-        {% count = nil %}
-        {% glob = false %}
+        {% current = {directive: nil, index: index} %}
         {% accepts_modifiers = false %}
-        {% directive_start = index %}
 
         {% unless " \n\t\f\v\r".includes?(ch) %}
-          {% directive = ch %}
+          {% current[:directive] = ch %}
           {% accepts_modifiers = "sSlLqQjJiI".includes?(ch) %}
         {% end %}
 
       {% elsif ch == '_' || ch == '!' %}
         {% fmt.raise "#{ch} allowed only after directives sSiIlLqQjJ" unless accepts_modifiers %}
-        {% fmt.raise "#{ch} allowed only before '*' and count" if glob || count %}
-        {% native_size = true %}
+        {% fmt.raise "#{ch} allowed only before '*' and count" if current[:glob] || current[:count] %}
+        {% current[:bang] = true %}
 
       {% elsif ch == '<' %}
         {% fmt.raise "#{ch} allowed only after directives sSiIlLqQjJ" unless accepts_modifiers %}
-        {% fmt.raise "#{ch} allowed only before '*' and count" if glob || count %}
-        {% fmt.raise "can't use both '<' and '>'" if endianness == :BigEndian %}
-        {% endianness = :LittleEndian %}
+        {% fmt.raise "#{ch} allowed only before '*' and count" if current[:glob] || current[:count] %}
+        {% fmt.raise "can't use both '<' and '>'" if current[:endianness] == :BigEndian %}
+        {% current[:endianness] = :LittleEndian %}
       {% elsif ch == '>' %}
         {% fmt.raise "#{ch} allowed only after directives sSiIlLqQjJ" unless accepts_modifiers %}
-        {% fmt.raise "#{ch} allowed only before '*' and count" if glob || count %}
-        {% fmt.raise "can't use both '<' and '>'" if endianness == :LittleEndian %}
-        {% endianness = :BigEndian %}
+        {% fmt.raise "#{ch} allowed only before '*' and count" if current[:glob] || current[:count] %}
+        {% fmt.raise "can't use both '<' and '>'" if current[:endianness] == :LittleEndian %}
+        {% current[:endianness] = :BigEndian %}
 
       {% elsif ch == '*' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "#{ch} not allowed for '@'" if directive == '@' %}
-        {% fmt.raise "#{ch} not allowed for 'P'" if directive == 'P' %}
-        {% fmt.raise "can't use both '*' and count" if count %}
-        {% glob = true %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "#{ch} not allowed for '@'" if current[:directive] == '@' %}
+        {% fmt.raise "#{ch} not allowed for 'P'" if current[:directive] == 'P' %}
+        {% fmt.raise "can't use both '*' and count" if current[:count] %}
+        {% current[:glob] = true %}
 
       {% elsif ch == '0' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 0 : 0 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 0 %}
       {% elsif ch == '1' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 1 : 1 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 1 %}
       {% elsif ch == '2' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 2 : 2 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 2 %}
       {% elsif ch == '3' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 3 : 3 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 3 %}
       {% elsif ch == '4' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 4 : 4 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 4 %}
       {% elsif ch == '5' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 5 : 5 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 5 %}
       {% elsif ch == '6' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 6 : 6 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 6 %}
       {% elsif ch == '7' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 7 : 7 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 7 %}
       {% elsif ch == '8' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 8 : 8 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 8 %}
       {% elsif ch == '9' %}
-        {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "can't use both '*' and count" if glob %}
-        {% count = count ? count * 10 + 9 : 9 %}
+        {% fmt.raise "#{ch} allowed only after a directive" unless current[:directive] %}
+        {% fmt.raise "can't use both '*' and count" if current[:glob] %}
+        {% current[:count] = (current[:count] || 0) * 10 + 9 %}
 
       {% elsif ch == 'D' %}
         {% fmt.raise "long double is not supported, use 'd' instead" %}
@@ -464,12 +457,11 @@ module Pack
 
     {% used_indices = [] of ASTNode %}
     {% for command in commands %}
-      {% name, directive, native_size, endianness, count, glob, index = command %}
-      {% if "@xX".includes?(directive) %}
-        Pack::UnpackImpl.do_unpack1({{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
+      {% if "@xX".includes?(command[:directive]) %}
+        Pack::UnpackImpl.do_unpack1({{ command }})
       {% else %}
-        %values{index} = Pack::UnpackImpl.do_unpack1({{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
-        {% used_indices << index %}
+        %values{command[:index]} = Pack::UnpackImpl.do_unpack1({{ command }})
+        {% used_indices << command[:index] %}
       {% end %}
     {% end %}
 
