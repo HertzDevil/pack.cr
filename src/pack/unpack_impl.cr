@@ -12,23 +12,24 @@ module Pack::UnpackImpl
   #   bytes.to_slice
   # end
 
-  macro unpack_utf8
-    %value = obj[byte_offset].to_u32
-    case %value
+  @[AlwaysInline]
+  def self.unpack_utf8(obj, byte_offset)
+    case c0 = obj[byte_offset].to_u32
     when 0x00..0x7F
       byte_offset += 1
+      value = c0
     when 0xC2..0xDF
       c1 = obj[byte_offset + 1]
       raise InvalidByteSequenceError.new unless 0x80 <= c1 <= 0xBF
-      %value = ((%value & 0x1F) << 6) | (c1 & 0x3F)
+      value = ((c0 & 0x1F) << 6) | (c1 & 0x3F)
       byte_offset += 2
     when 0xE0..0xEF
       c1 = obj[byte_offset + 1]
       raise InvalidByteSequenceError.new unless 0x80 <= c1 <= 0xBF
       c2 = obj[byte_offset + 2]
       raise InvalidByteSequenceError.new unless 0x80 <= c2 <= 0xBF
-      %value = ((%value & 0x0F) << 12) | ((c1 & 0x3F).to_u32 << 6) | (c2 & 0x3F)
-      raise InvalidByteSequenceError.new unless (0x0800 <= %value <= 0xD7FF) || 0xE000 <= %value
+      value = ((c0 & 0x0F) << 12) | ((c1 & 0x3F).to_u32 << 6) | (c2 & 0x3F)
+      raise InvalidByteSequenceError.new unless (0x0800 <= value <= 0xD7FF) || 0xE000 <= value
       byte_offset += 3
     when 0xF0..0xF4
       c1 = obj[byte_offset + 1]
@@ -37,27 +38,114 @@ module Pack::UnpackImpl
       raise InvalidByteSequenceError.new unless 0x80 <= c2 <= 0xBF
       c3 = obj[byte_offset + 3]
       raise InvalidByteSequenceError.new unless 0x80 <= c3 <= 0xBF
-      %value = ((%value & 0x07) << 18) | ((c1 & 0x3F).to_u32 << 12) | ((c2 & 0x3F).to_u32 << 6) | (c3 & 0x3F)
-      raise InvalidByteSequenceError.new unless 0x10000 <= %value <= Char::MAX_CODEPOINT
+      value = ((c0 & 0x07) << 18) | ((c1 & 0x3F).to_u32 << 12) | ((c2 & 0x3F).to_u32 << 6) | (c3 & 0x3F)
+      raise InvalidByteSequenceError.new unless 0x10000 <= value <= Char::MAX_CODEPOINT
       byte_offset += 4
     else
       raise InvalidByteSequenceError.new
     end
-    %value.unsafe_chr
+    {value.unsafe_chr, byte_offset}
   end
 
-  macro unpack_ber
-    %ch = obj[byte_offset]
+  @[AlwaysInline]
+  def self.unpack_ber(obj, byte_offset)
+    ch = obj[byte_offset]
     byte_offset += 1
-    %value = 0x7F_u64 & %ch
+    value = 0x7F_u64 & ch
 
-    while %ch & 0x80_u8 != 0
-      %ch = obj[byte_offset]
+    while ch & 0x80_u8 != 0
+      ch = obj[byte_offset]
       byte_offset += 1
-      %value = (%value << 7) | (%ch & 0x7F_u8)
+      value = (value << 7) | (ch & 0x7F_u8)
     end
 
-    %value
+    {value, byte_offset}
+  end
+
+  @[AlwaysInline]
+  def self.unpack_h_lsb(obj, byte_offset, len)
+    value = String.build do |b|
+      (len // 2).times do
+        ch = obj[byte_offset]
+        byte_offset += 1
+        b.write_byte(Pack::UnpackImpl.to_hex(ch & 0xF))
+        b.write_byte(Pack::UnpackImpl.to_hex((ch >> 4) & 0xF))
+      end
+
+      if len % 2 != 0
+        b.write_byte(Pack::UnpackImpl.to_hex(obj[byte_offset] & 0xF))
+        byte_offset += 1
+      end
+    end
+
+    {value, byte_offset}
+  end
+
+  @[AlwaysInline]
+  def self.unpack_h_msb(obj, byte_offset, len)
+    value = String.build do |b|
+      (len // 2).times do
+        ch = obj[byte_offset]
+        byte_offset += 1
+        b.write_byte(Pack::UnpackImpl.to_hex((ch >> 4) & 0xF))
+        b.write_byte(Pack::UnpackImpl.to_hex(ch & 0xF))
+      end
+
+      if len % 2 != 0
+        b.write_byte(Pack::UnpackImpl.to_hex((obj[byte_offset] >> 4) & 0xF))
+        byte_offset += 1
+      end
+    end
+
+    {value, byte_offset}
+  end
+
+  @[AlwaysInline]
+  def self.unpack_b_lsb(obj, byte_offset, len)
+    value = String.build do |b|
+      (len // 8).times do
+        ch = obj[byte_offset]
+        byte_offset += 1
+        0.upto(7) do |i|
+          b.write_byte((ch >> i) & 0x01 | 0x30)
+        end
+      end
+
+      rest = len % 8
+      if rest != 0
+        ch = obj[byte_offset]
+        byte_offset += 1
+        0.upto(rest - 1) do |i|
+          b.write_byte((ch >> i) & 0x01 | 0x30)
+        end
+      end
+    end
+
+    {value, byte_offset}
+  end
+
+  @[AlwaysInline]
+  def self.unpack_b_msb(obj, byte_offset, len)
+    value = String.build do |b|
+      (len // 8).times do
+        ch = obj[byte_offset]
+        byte_offset += 1
+        7.downto(0) do |i|
+          b.write_byte((ch >> i) & 0x01 | 0x30)
+        end
+      end
+
+      rest = len % 8
+      if rest != 0
+        ch = obj[byte_offset]
+        byte_offset += 1
+        7.downto(8 - rest) do |i|
+          b.write_byte((ch >> i) & 0x01 | 0x30)
+        end
+      end
+    end
+
+    {value, byte_offset}
   end
 
   # accesses `obj` and `byte_offset` from outer scope
@@ -160,31 +248,35 @@ module Pack::UnpackImpl
       {% if count = command[:count] %}
         %value = String.build do |b|
           {{ count }}.times do
-            b << Pack::UnpackImpl.unpack_utf8
+            ch, byte_offset = Pack::UnpackImpl.unpack_utf8(obj, byte_offset)
+            b << ch
           end
         end
       {% elsif command[:glob] %}
         %value = String.build do |b|
           while byte_offset < obj.size
-            b << Pack::UnpackImpl.unpack_utf8
+            ch, byte_offset = Pack::UnpackImpl.unpack_utf8(obj, byte_offset)
+            b << ch
           end
         end
       {% else %}
-        %value = Pack::UnpackImpl.unpack_utf8
+        %value, byte_offset = Pack::UnpackImpl.unpack_utf8(obj, byte_offset)
       {% end %}
 
     {% elsif directive == 'w' %}
       {% if count = command[:count] %}
         %value = StaticArray(UInt64, {{ count }}).new do
-          Pack::UnpackImpl.unpack_ber
+          value, byte_offset = Pack::UnpackImpl.unpack_ber(obj, byte_offset)
+          value
         end
       {% elsif command[:glob] %}
         %value = Array(UInt64).new
         while byte_offset < obj.size
-          %value << Pack::UnpackImpl.unpack_ber
+          value, byte_offset = Pack::UnpackImpl.unpack_ber(obj, byte_offset)
+          %value << value
         end
       {% else %}
-        %value = Pack::UnpackImpl.unpack_ber
+        %value, byte_offset = Pack::UnpackImpl.unpack_ber(obj, byte_offset)
       {% end %}
 
     {% elsif directive == 'a' || directive == 'A' %}
@@ -234,28 +326,11 @@ module Pack::UnpackImpl
         elem_count = {{ command[:count] || 1 }}
       {% end %}
 
-      %value = String.build do |b|
-        (elem_count // 2).times do
-          ch = obj[byte_offset]
-          byte_offset += 1
-          {% if directive == 'H' %}
-            b.write_byte(Pack::UnpackImpl.to_hex((ch >> 4) & 0xF))
-            b.write_byte(Pack::UnpackImpl.to_hex(ch & 0xF))
-          {% else %}
-            b.write_byte(Pack::UnpackImpl.to_hex(ch & 0xF))
-            b.write_byte(Pack::UnpackImpl.to_hex((ch >> 4) & 0xF))
-          {% end %}
-        end
-
-        if elem_count % 2 != 0
-          {% if directive == 'H' %}
-            b.write_byte(Pack::UnpackImpl.to_hex((obj[byte_offset] >> 4) & 0xF))
-          {% else %}
-            b.write_byte(Pack::UnpackImpl.to_hex(obj[byte_offset] & 0xF))
-          {% end %}
-          byte_offset += 1
-        end
-      end
+      {% if directive == 'H' %}
+        %value, byte_offset = Pack::UnpackImpl.unpack_h_msb(obj, byte_offset, elem_count)
+      {% else %}
+        %value, byte_offset = Pack::UnpackImpl.unpack_h_lsb(obj, byte_offset, elem_count)
+      {% end %}
 
     {% elsif directive == 'b' || directive == 'B' %}
       {% if command[:glob] %}
@@ -264,36 +339,11 @@ module Pack::UnpackImpl
         elem_count = {{ command[:count] || 1 }}
       {% end %}
 
-      %value = String.build do |b|
-        (elem_count // 8).times do
-          ch = obj[byte_offset]
-          byte_offset += 1
-          {% if directive == 'B' %}
-            7.downto(0) do |i|
-              b.write_byte((ch >> i) & 0x01 | 0x30)
-            end
-          {% else %}
-            0.upto(7) do |i|
-              b.write_byte((ch >> i) & 0x01 | 0x30)
-            end
-          {% end %}
-        end
-
-        rest = elem_count % 8
-        if rest != 0
-          ch = obj[byte_offset]
-          byte_offset += 1
-          {% if directive == 'B' %}
-            7.downto(8 - rest) do |i|
-              b.write_byte((ch >> i) & 0x01 | 0x30)
-            end
-          {% else %}
-            0.upto(rest - 1) do |i|
-              b.write_byte((ch >> i) & 0x01 | 0x30)
-            end
-          {% end %}
-        end
-      end
+      {% if directive == 'B' %}
+        %value, byte_offset = Pack::UnpackImpl.unpack_b_msb(obj, byte_offset, elem_count)
+      {% else %}
+        %value, byte_offset = Pack::UnpackImpl.unpack_b_lsb(obj, byte_offset, elem_count)
+      {% end %}
 
     {% elsif directive == 'P' %}
       sz = sizeof(Void*)

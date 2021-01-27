@@ -1,7 +1,9 @@
 # pack.cr
 
-![Branch state](https://img.shields.io/github/checks-status/HertzDevil/pack.cr/main)
-![Doc state](https://img.shields.io/github/deployments/HertzDevil/pack.cr/github-pages?label=docs)
+![Linux status](https://img.shields.io/github/workflow/status/HertzDevil/pack.cr/Linux%20CI?label=Linux)
+![macOS status](https://img.shields.io/github/workflow/status/HertzDevil/pack.cr/macOS%20CI?label=macOS)
+![Windows status](https://img.shields.io/github/workflow/status/HertzDevil/pack.cr/Windows%20CI?label=Windows)
+![Docs status](https://img.shields.io/github/deployments/HertzDevil/pack.cr/github-pages?label=docs)
 ![License](https://img.shields.io/github/license/HertzDevil/pack.cr)
 
 This Crystal library provides macros that transform simple values to and from
