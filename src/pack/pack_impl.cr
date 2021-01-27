@@ -175,6 +175,7 @@ module Pack
       {% fmt.raise "format must be a string literal or constant" %}
     {% end %}
 
+    {% commands = [] of ASTNode %}
     {% directive = nil %}
     {% native_size = false %}
     {% endianness = :SystemEndian %}
@@ -183,23 +184,14 @@ module Pack
 
     {% chars = fmt.chars %}
     {% chars << ' ' %}
-    {% arg_pos = 0 %}
     {% accepts_modifiers = false %}
-
     {% directive_start = nil %}
-
-    io = ({{ io }}).as(::IO)
-    byte_offset = 0
 
     {% for ch, index in chars %}
       {% if "cCsSlLqQiIjJnNvVdfFeEgGUwaAZbBhHumMpP@xX \n\t\f\v\r".includes?(ch) %}
         {% if directive %}
-          {% if arg_pos >= args.size %}
-            {% args.raise "missing argument for directive #{chars[directive_start...index].join("")}" %}
-          {% end %}
-          {% arg = args[arg_pos] %}
-          {% arg_pos += 1 %}
-          Pack::PackImpl.do_pack1({{ arg }}, {{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
+          {% name = chars[directive_start...index].join("") %}
+          {% commands << {name, directive, native_size, endianness, count, glob, index} %}
         {% end %}
 
         {% directive = nil %}
@@ -240,52 +232,42 @@ module Pack
 
       {% elsif ch == '0' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 0 : 0 %}
       {% elsif ch == '1' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 1 : 1 %}
       {% elsif ch == '2' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 2 : 2 %}
       {% elsif ch == '3' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 3 : 3 %}
       {% elsif ch == '4' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 4 : 4 %}
       {% elsif ch == '5' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 5 : 5 %}
       {% elsif ch == '6' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 6 : 6 %}
       {% elsif ch == '7' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 7 : 7 %}
       {% elsif ch == '8' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 8 : 8 %}
       {% elsif ch == '9' %}
         {% fmt.raise "#{ch} allowed only after a directive" unless directive %}
-        {% fmt.raise "count not allowed for 'P'" if directive == 'P' %}
         {% fmt.raise "can't use both '*' and count" if glob %}
         {% count = count ? count * 10 + 9 : 9 %}
 
@@ -295,6 +277,23 @@ module Pack
       {% else %}
         {% fmt.raise "unexpected directive: #{ch}" %}
       {% end %}
+    {% end %}
+
+    io = ({{ io }}).as(::IO)
+    byte_offset = 0
+
+    {% arg_pos = 0 %}
+    {% for command in commands %}
+      {% name, directive, native_size, endianness, count, glob, index = command %}
+      {% if directive == 'P' && count %}
+        {% fmt.raise "count not allowed for 'P'" %}
+      {% end %}
+      {% if arg_pos >= args.size %}
+        {% args.raise "missing argument for directive #{name}" %}
+      {% end %}
+      {% arg = args[arg_pos] %}
+      {% arg_pos += 1 %}
+      Pack::PackImpl.do_pack1({{ arg }}, {{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
     {% end %}
 
     {% if arg_pos < args.size %}

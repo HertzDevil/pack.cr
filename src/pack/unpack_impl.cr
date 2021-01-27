@@ -355,6 +355,7 @@ module Pack
       {% fmt.raise "format must be a string literal or constant" %}
     {% end %}
 
+    {% commands = [] of ASTNode %}
     {% directive = nil %}
     {% native_size = false %}
     {% endianness = :SystemEndian %}
@@ -364,20 +365,13 @@ module Pack
     {% chars = fmt.chars %}
     {% chars << ' ' %}
     {% accepts_modifiers = false %}
-
-    obj = Pack::UnpackImpl.to_slice({{ bytes }})
-    byte_offset = 0
-    {% used_indices = [] of ASTNode %}
+    {% directive_start = nil %}
 
     {% for ch, index in chars %}
-      {% if "cCsSlLqQiIjJnNvVuUwdfFeEgGaAZbBhHmMpP@xX \n\t\f\v\r".includes?(ch) %}
+      {% if "cCsSlLqQiIjJnNvVdfFeEgGUwaAZbBhHumMpP@xX \n\t\f\v\r".includes?(ch) %}
         {% if directive %}
-          {% if "@xX".includes?(directive) %}
-            Pack::UnpackImpl.do_unpack1({{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
-          {% else %}
-            %values{index} = Pack::UnpackImpl.do_unpack1({{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
-            {% used_indices << index %}
-          {% end %}
+          {% name = chars[directive_start...index].join("") %}
+          {% commands << {name, directive, native_size, endianness, count, glob, index} %}
         {% end %}
 
         {% directive = nil %}
@@ -386,6 +380,7 @@ module Pack
         {% count = nil %}
         {% glob = false %}
         {% accepts_modifiers = false %}
+        {% directive_start = index %}
 
         {% unless " \n\t\f\v\r".includes?(ch) %}
           {% directive = ch %}
@@ -461,6 +456,20 @@ module Pack
 
       {% else %}
         {% fmt.raise "unexpected directive: #{ch}" %}
+      {% end %}
+    {% end %}
+
+    obj = Pack::UnpackImpl.to_slice({{ bytes }})
+    byte_offset = 0
+
+    {% used_indices = [] of ASTNode %}
+    {% for command in commands %}
+      {% name, directive, native_size, endianness, count, glob, index = command %}
+      {% if "@xX".includes?(directive) %}
+        Pack::UnpackImpl.do_unpack1({{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
+      {% else %}
+        %values{index} = Pack::UnpackImpl.do_unpack1({{ directive }}, {{ native_size }}, {{ endianness }}, {{ count }}, {{ glob }})
+        {% used_indices << index %}
       {% end %}
     {% end %}
 
