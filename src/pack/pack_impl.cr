@@ -66,6 +66,86 @@ module Pack::PackImpl
     {% end %}
   end
 
+  def self.pack_bitstring_lsb(io, str : String, len : Int)
+    raise IndexError.new("not enough elements") unless len <= str.size
+    if len > 0
+      count = 0
+      b = 0_u8
+      str.each_char do |ch|
+        b <<= 1
+        b |= ch.to_i(2)
+        count += 1
+        break if count >= len
+        if count % 8 == 0
+          io.write_byte(b)
+          b = 0_u8
+        end
+      end
+      io.write_byte(b)
+    end
+    (len + 7) // 8
+  end
+
+  def self.pack_bitstring_msb(io, str : String, len : Int)
+    raise IndexError.new("not enough elements") unless len <= str.size
+    if len > 0
+      count = 0
+      b = 0_u8
+      str.each_char do |ch|
+        i = count % 8
+        b |= ch.to_i(2) << (7 - i)
+        count += 1
+        break if count >= len
+        if i == 7
+          io.write_byte(b)
+          b = 0_u8
+        end
+      end
+      io.write_byte(b)
+    end
+    (len + 7) // 8
+  end
+
+  def self.pack_hexstring_lsb(io, str : String, len : Int)
+    raise IndexError.new("not enough elements") unless len <= str.size
+    if len > 0
+      count = 0
+      b = 0_u8
+      str.each_char do |ch|
+        i = count % 2
+        b |= ch.to_i(16) << (i * 4)
+        count += 1
+        break if count >= len
+        if count % 2 == 0
+          io.write_byte(b)
+          b = 0_u8
+        end
+      end
+      io.write_byte(b)
+    end
+    (len + 1) // 8
+  end
+
+  def self.pack_hexstring_msb(io, str : String, len : Int)
+    raise IndexError.new("not enough elements") unless len <= str.size
+    if len > 0
+      count = 0
+      b = 0_u8
+      str.each_char do |ch|
+        i = count % 2
+        b |= ch.to_i(16) << (4 - i * 4)
+        count += 1
+        break if count >= len
+        if i == 1
+          io.write_byte(b)
+          b = 0_u8
+        end
+      end
+      io.write_byte(b)
+    end
+    (len + 1) // 8
+  end
+
   # accesses `io` and `byte_offset` from outer scope
   # defines `elem_count` in outer scope
   macro do_pack1(arg, command)
@@ -160,6 +240,24 @@ module Pack::PackImpl
           io.write_bytes(value, {{ converter }})
         end
         byte_offset += sizeof({{ value_type }})
+      {% end %}
+
+    {% elsif "bBhH".includes?(directive) %}
+      {% if directive == 'b' %}
+        {% packer = "pack_bitstring_lsb".id %}
+      {% elsif directive == 'B' %}
+        {% packer = "pack_bitstring_msb".id %}
+      {% elsif directive == 'h' %}
+        {% packer = "pack_hexstring_lsb".id %}
+      {% elsif directive == 'H' %}
+        {% packer = "pack_hexstring_msb".id %}
+      {% end %}
+
+      {% if command[:glob] %}
+        %arg = {{ arg }}
+        byte_offset += ::Pack::PackImpl.{{ packer }}(io, %arg, %arg.size)
+      {% else %}
+        byte_offset += ::Pack::PackImpl.{{ packer }}(io, {{ arg }}, {{ command[:count] || 1 }})
       {% end %}
 
     {% else %}
