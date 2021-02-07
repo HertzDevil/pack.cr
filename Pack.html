@@ -84,6 +84,105 @@
 
   <p>Crystal port of Perl / Ruby's <code><a href="Pack.html#pack(fmt,*args)-macro">pack</a></code> / <code><a href="Pack.html#unpack(bytes,fmt)-macro">unpack</a></code> functions.</p>
 
+<p>The basic usage is <code><a href="Pack.html#pack_to(io,fmt,*args)-macro">Pack.pack_to</a></code> for writing to an <code>IO</code>, and <code><a href="Pack.html#unpack(bytes,fmt)-macro">Pack.unpack</a></code>
+for reading from a <code>Bytes</code>. The function <code><a href="Pack.html#pack(fmt,*args)-macro">Pack.pack</a></code> writes to a new <code>Bytes</code>
+and returns it.</p>
+
+<pre><code class="language-crystal"><span class="k">require</span> <span class="s">&quot;pack&quot;</span>
+
+<span class="t">Pack</span>.unpack <span class="t">Bytes</span>[<span class="n">0x01</span>, <span class="n">0xC8</span>, <span class="n">0x03</span>, <span class="n">0x04</span>], <span class="s">&quot;cCs&quot;</span> <span class="c"># =&gt; {1_i8, 200_u8, 1027_i16}</span>
+<span class="t">Pack</span>.pack <span class="s">&quot;csl&gt;&quot;</span>, <span class="n">42_i8</span>, <span class="n">-1000_i16</span>, <span class="n">1</span> <span class="o">&lt;&lt;</span> <span class="n">31</span>      <span class="c"># =&gt; Bytes[42, 24, 252, 128, 0, 0, 0]</span></code></pre>
+
+<p>The format string consists of any number of commands, which consist of a
+directive (usually indicating the type of value to be read or written),
+optionally followed by an integer count or a glob (<code>*</code>). Whitespaces between
+commands are ignored, but must not appear in the middle of a command. The
+directives are classified as below:</p>
+
+<ul><li><a href="#fixed-size-integers">Fixed-size integers</a> (<code>c</code> <code>C</code> <code>s</code> <code>S</code> <code>l</code> <code>L</code> <code>q</code> <code>Q</code> <code>n</code> <code>N</code> <code>v</code> <code>V</code>)</li><li><a href="#native-integers">Native integers</a> (<code>i</code> <code>I</code> <code>j</code> <code>J</code>)</li><li><a href="#floating-point-values">Floating-point values</a> (<code>d</code> <code>f</code> <code>F</code> <code>e</code> <code>E</code> <code>g</code> <code>G</code>)</li><li>BER-compressed integers (<code>w</code>)</li><li>Binary strings (<code>a</code> <code>A</code> <code>Z</code>)</li><li>UTF-8 characters / strings (<code>U</code> <code>U*</code>)</li><li>Bitstrings and hexstrings (<code>b</code> <code>B</code> <code>h</code> <code>H</code>)</li><li>Raw pointers and slices (<code>p</code> <code>P</code>)</li><li>UU-encoded strings (<code>u</code>)</li><li>Base64-encoded strings (<code>m</code> <code>M</code>)</li></ul>
+
+<h3><a id="fixed-size-integers" class="anchor" href="#fixed-size-integers">
+  <svg class="octicon-link" aria-hidden="true">
+    <use href="#octicon-link"/>
+  </svg>
+</a>Fixed-size integers</h3>
+
+<p>These directives pack and unpack values of type <code>T</code>, where <code>T</code> &lt;
+<code>Int::Primitive</code>. The type <code>T</code> depends on the directive being used:</p>
+
+<ul><li><code>Int8</code>: <code>c</code></li><li><code>UInt8</code>: <code>C</code></li><li><code>Int16</code>: <code>s</code></li><li><code>UInt16</code>: <code>S</code></li><li><code>Int32</code>: <code>l</code></li><li><code>UInt32</code>: <code>L</code></li><li><code>Int64</code>: <code>q</code></li><li><code>UInt64</code>: <code>Q</code></li></ul>
+
+<p>Due to auto-casting, compatible integer literals are allowed during packing:</p>
+
+<pre><code class="language-crystal"><span class="t">Pack</span>.pack(<span class="s">&quot;cs&quot;</span>, <span class="n">1</span>, <span class="n">1</span>) <span class="c"># =&gt; Bytes[1, 1, 0]</span></code></pre>
+
+<p>These directives obey the system endianness, unless an endianness modifier is
+supplied. <code><</code> and <code>></code> force the command to use little-endian and big-endian
+respectively. The two modifiers cannot be specified in the same command.</p>
+
+<p>The <code>_</code> or <code>!</code> modifier forces the command to use native-size integers
+instead. See <a href="#native-integers">Native integers</a> for the corresponding integer
+types used.</p>
+
+<p>The following aliases are defined:</p>
+
+<ul><li><code>n</code> is equivalent to <code>S></code> (stands for network byte order)</li><li><code>N</code> is equivalent to <code>L></code></li><li><code>v</code> is equivalent to <code>S<</code> (stands for
+  <a href="https://en.wikipedia.org/wiki/VAX">VAX</a> byte order)</li><li><code>V</code> is equivalent to <code>L<</code></li></ul>
+
+<p>Endianness and native-size modifiers are not allowed after <code>c</code>, <code>C</code>, <code>n</code>, <code>N</code>,
+<code>v</code>, and <code>V</code>.</p>
+
+<p>Repeat counts are supported. Unpacking produces values of type
+<code>StaticArray(T, N)</code>, where <code>N</code> is the count specified in the command. Packing
+accepts any <code>Enumerable</code> that is a collection of the appropriate element type.
+If the value does not contain as many elements as specified, <code>IndexError</code> is
+raised.</p>
+
+<p>Globs are supported. Unpacking produces values of type <code>Array(T)</code>. Packing
+accepts any <code>Enumerable</code> that is a collection of the appropriate element type.</p>
+
+<h3><a id="native-integers" class="anchor" href="#native-integers">
+  <svg class="octicon-link" aria-hidden="true">
+    <use href="#octicon-link"/>
+  </svg>
+</a>Native integers</h3>
+
+<p>These directives pack and unpack values of type <code>T</code>, where <code>T</code> &lt;
+<code>Int::Primitive</code>. The type <code>T</code> depends on the directive being used:</p>
+
+<ul><li><code>LibC::Short</code>: <code>s!</code></li><li><code>LibC::UShort</code>: <code>S!</code></li><li><code>LibC::Int</code>: <code>i</code> <code>i!</code></li><li><code>LibC::UInt</code>: <code>I</code> <code>I!</code></li><li><code>LibC::Long</code>: <code>l!</code></li><li><code>LibC::ULong</code>: <code>L!</code></li><li><code>LibC::LongLong</code>: <code>q!</code></li><li><code>LibC::ULongLong</code>: <code>Q!</code></li><li><code>LibC::Int64T</code>: <code>j</code> <code>j!</code> (stands for C's <code>intptr_t</code>)</li><li><code>LibC::UInt64T</code>: <code>J</code> <code>J!</code> (stands for C's <code>uintptr_t</code>)</li></ul>
+
+<p>Endianness modifiers are allowed on all of them, and have the same effect as
+fixed-size integers.</p>
+
+<p>Native-size modifiers are allowed on all of them, including <code>i</code>, <code>I</code>, <code>j</code>, and
+<code>J</code> for completeness.</p>
+
+<p>Repeat counts and globs are supported in the same way as fixed-size integers.</p>
+
+<h3><a id="floating-point-values" class="anchor" href="#floating-point-values">
+  <svg class="octicon-link" aria-hidden="true">
+    <use href="#octicon-link"/>
+  </svg>
+</a>Floating-point values</h3>
+
+<p>These directives pack and unpack values of type <code>T</code>, where <code>T</code> &lt;
+<code>Int::Primitive</code>. The type <code>T</code> depends on the directive being used:</p>
+
+<ul><li><code>Float32</code>: <code>f</code> <code>e</code> <code>g</code></li><li><code>Float64</code>: <code>d</code> <code>E</code> <code>G</code></li><li><code>LibC::Float32</code>: <code>F</code></li></ul>
+
+<p>The endianness also depends on the directive:</p>
+
+<ul><li>System endian: <code>d</code> <code>f</code> <code>F</code></li><li>Little-endian: <code>e</code> <code>E</code></li><li>Big-endian: <code>g</code> <code>G</code></li></ul>
+
+<p>The <code>D</code> directive represents a native double-precision value in Ruby but a
+long double value in Perl. To avoid confusion, this library does not support
+<code>D</code>, because Crystal doesn't support long doubles.</p>
+
+<p>Endianness and native-size modifiers are not allowed.</p>
+
+<p>Repeat counts and globs are supported in the same way as fixed-size integers.</p>
+
 
 
 
@@ -107,28 +206,28 @@
   </h2>
   
     
-      <a href="https://github.com/HertzDevil/pack.cr/blob/899a0b1a20bc4525100e2c31fe20c7fd94768a88/src/pack.cr#L5" target="_blank">
+      <a href="https://github.com/HertzDevil/pack.cr/blob/c281ee894ab10629da7ab928c33c692d55db2a7f/src/pack.cr#L128" target="_blank">
         pack.cr
       </a>
     
     <br/>
   
     
-      <a href="https://github.com/HertzDevil/pack.cr/blob/899a0b1a20bc4525100e2c31fe20c7fd94768a88/src/pack/pack_impl.cr#L2" target="_blank">
+      <a href="https://github.com/HertzDevil/pack.cr/blob/c281ee894ab10629da7ab928c33c692d55db2a7f/src/pack/pack_impl.cr#L2" target="_blank">
         pack/pack_impl.cr:2
       </a>
     
     <br/>
   
     
-      <a href="https://github.com/HertzDevil/pack.cr/blob/899a0b1a20bc4525100e2c31fe20c7fd94768a88/src/pack/pack_impl.cr#L351" target="_blank">
-        pack/pack_impl.cr:351
+      <a href="https://github.com/HertzDevil/pack.cr/blob/c281ee894ab10629da7ab928c33c692d55db2a7f/src/pack/pack_impl.cr#L348" target="_blank">
+        pack/pack_impl.cr:348
       </a>
     
     <br/>
   
     
-      <a href="https://github.com/HertzDevil/pack.cr/blob/899a0b1a20bc4525100e2c31fe20c7fd94768a88/src/pack/unpack_impl.cr#L391" target="_blank">
+      <a href="https://github.com/HertzDevil/pack.cr/blob/c281ee894ab10629da7ab928c33c692d55db2a7f/src/pack/unpack_impl.cr#L390" target="_blank">
         pack/unpack_impl.cr
       </a>
     
@@ -177,10 +276,14 @@
       <li class="entry-summary">
         <a href="#pack(fmt,*args)-macro" class="signature"><strong>pack</strong>(fmt, *args)</a>
         
+          <div class="summary"><p>Packs <em>args</em> into a new writable <code>Bytes</code> according to the given format string <em>fmt</em>.</p></div>
+        
       </li>
     
       <li class="entry-summary">
         <a href="#pack_to(io,fmt,*args)-macro" class="signature"><strong>pack_to</strong>(io, fmt, *args)</a>
+        
+          <div class="summary"><p>Packs <em>args</em> into the given <em>io</em> according to the given format string <em>fmt</em>.</p></div>
         
       </li>
     
@@ -223,10 +326,25 @@
         <a class="method-permalink" href="#pack(fmt,*args)-macro">#</a>
       </div>
       
+        <div class="doc">
+          
+          <p>Packs <em>args</em> into a new writable <code>Bytes</code> according to the given format
+string <em>fmt</em>.</p>
+
+<p>Commands that contain repeat counts or globs do not consume multiple
+arguments.</p>
+
+<p><em>fmt</em> must be a string literal or string constant representing a valid
+sequence of unpacking commands. The arity and types of <em>args</em> depend on the
+commands given.</p>
+
+<pre><code class="language-crystal"><span class="t">Pack</span>.pack(<span class="s">&quot;csl&gt;&quot;</span>, <span class="n">1_i8</span>, <span class="n">1000</span>, <span class="n">100000000</span>) <span class="c"># =&gt; Bytes[0x01, 0xE8, 0x03, 0x05, 0xF5, 0xE1, 0x00]</span></code></pre>
+        </div>
+      
       <br/>
       <div>
         
-          [<a href="https://github.com/HertzDevil/pack.cr/blob/899a0b1a20bc4525100e2c31fe20c7fd94768a88/src/pack/pack_impl.cr#L475" target="_blank">View source</a>]
+          [<a href="https://github.com/HertzDevil/pack.cr/blob/c281ee894ab10629da7ab928c33c692d55db2a7f/src/pack/pack_impl.cr#L500" target="_blank">View source</a>]
         
       </div>
     </div>
@@ -239,10 +357,27 @@
         <a class="method-permalink" href="#pack_to(io,fmt,*args)-macro">#</a>
       </div>
       
+        <div class="doc">
+          
+          <p>Packs <em>args</em> into the given <em>io</em> according to the given format string <em>fmt</em>.
+The return value is unspecified.</p>
+
+<p>Commands that contain repeat counts or globs do not consume multiple
+arguments.</p>
+
+<p><em>io</em> must be an <code>IO</code>. <em>fmt</em> must be a string literal or string constant
+representing a valid sequence of unpacking commands. The arity and types of
+<em>args</em> depend on the commands given.</p>
+
+<pre><code class="language-crystal">io <span class="o">=</span> <span class="t">IO</span><span class="t">::</span><span class="t">Memory</span>.<span class="k">new</span>
+<span class="t">Pack</span>.pack_to(io, <span class="s">&quot;csl&gt;&quot;</span>, <span class="n">1_i8</span>, <span class="n">1000</span>, <span class="n">100000000</span>)
+io.to_slice <span class="c"># =&gt; Bytes[0x01, 0xE8, 0x03, 0x05, 0xF5, 0xE1, 0x00]</span></code></pre>
+        </div>
+      
       <br/>
       <div>
         
-          [<a href="https://github.com/HertzDevil/pack.cr/blob/899a0b1a20bc4525100e2c31fe20c7fd94768a88/src/pack/pack_impl.cr#L352" target="_blank">View source</a>]
+          [<a href="https://github.com/HertzDevil/pack.cr/blob/c281ee894ab10629da7ab928c33c692d55db2a7f/src/pack/pack_impl.cr#L364" target="_blank">View source</a>]
         
       </div>
     </div>
@@ -258,11 +393,11 @@
         <div class="doc">
           
           <p>Unpacks a buffer of <em>bytes</em> according to the given format string <em>fmt</em>.
-Returns a <code>Tuple</code> of unpacked values, without flattening directives that
-contain repeat counts.</p>
+Returns a <code>Tuple</code> of unpacked values, without flattening commands that
+contain repeat counts or globs.</p>
 
-<p><em>bytes</em> must be a <code>Slice(UInt8)</code>. <em>fmt</em> must be a string literal or constant
-representing a valid sequence of unpacking directives.</p>
+<p><em>bytes</em> must be a <code>Bytes</code>. <em>fmt</em> must be a string literal or string constant
+representing a valid sequence of unpacking commands.</p>
 
 <pre><code class="language-crystal"><span class="t">Pack</span>.unpack(<span class="t">Bytes</span>[<span class="n">0x01</span>, <span class="n">0xE8</span>, <span class="n">0x03</span>, <span class="n">0x05</span>, <span class="n">0xF5</span>, <span class="n">0xE1</span>, <span class="n">0x00</span>], <span class="s">&quot;csl&gt;&quot;</span>) <span class="c"># =&gt; {1_i8, 1000_i16, 100000000}</span>
 <span class="t">Pack</span>.unpack(<span class="s">&quot;abcd\x00ef\x00&quot;</span>.to_slice, <span class="s">&quot;CCZ*a*&quot;</span>)                     <span class="c"># =&gt; {StaticArray[97_u8, 98_u8], Bytes[99, 100], Bytes[101, 102, 0]}</span></code></pre>
@@ -271,7 +406,7 @@ representing a valid sequence of unpacking directives.</p>
       <br/>
       <div>
         
-          [<a href="https://github.com/HertzDevil/pack.cr/blob/899a0b1a20bc4525100e2c31fe20c7fd94768a88/src/pack/unpack_impl.cr#L403" target="_blank">View source</a>]
+          [<a href="https://github.com/HertzDevil/pack.cr/blob/c281ee894ab10629da7ab928c33c692d55db2a7f/src/pack/unpack_impl.cr#L402" target="_blank">View source</a>]
         
       </div>
     </div>
