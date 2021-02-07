@@ -66,6 +66,70 @@ module Pack::PackImpl
     {% end %}
   end
 
+  def self.pack_ber(io, value : Int::Primitive)
+    if value < 0
+      raise ArgumentError.new("can't pack negative numbers with 'w' directive")
+    end
+
+    digits = value.digits(128)
+    last = digits.shift
+
+    digits.reverse_each do |digit|
+      io.write_byte(digit.to_u8! | 0x80_u8)
+    end
+    io.write_byte(last.to_u8!)
+
+    digits.size
+  end
+
+  def self.pack_ber(io, value : BigInt)
+    if value < 0
+      raise ArgumentError.new("can't pack negative numbers with 'w' directive")
+    end
+
+    if value == 0
+      io.write_byte(0)
+      return 1
+    end
+
+    digits = Array(UInt8).new
+    while value != 0
+      digits << value.remainder(128).to_u8!
+      value = value.tdiv(128)
+    end
+
+    last = digits.shift
+    digits.reverse_each do |digit|
+      io.write_byte(digit | 0x80_u8)
+    end
+    io.write_byte(last)
+
+    digits.size
+  end
+
+  def self.pack_ber_count(io, value : Enumerable, count : Int)
+    check_enumerable(value)
+    byte_offset = 0
+    if count > 0
+      value.each do |elem|
+        byte_offset += pack_ber(io, elem)
+        count -= 1
+        break if count <= 0
+      end
+      raise IndexError.new("not enough elements") unless count == 0
+    end
+    byte_offset
+  end
+
+  def self.pack_ber_star(io, value : Enumerable)
+    check_enumerable(value)
+    byte_offset = 0
+    value.each do |elem|
+      byte_offset += pack_ber(io, elem)
+    end
+    byte_offset
+  end
+
   def self.pack_bitstring_lsb(io, str : String, len : Int)
     raise IndexError.new("not enough elements") unless len <= str.size
     if len > 0
@@ -242,6 +306,15 @@ module Pack::PackImpl
         byte_offset += sizeof({{ value_type }})
       {% end %}
 
+    {% elsif directive == 'w' %}
+      {% if count = command[:count] %}
+        byte_offset += ::Pack::PackImpl.pack_ber_count(io, {{ arg }}, {{ count }})
+      {% elsif command[:glob] %}
+        byte_offset += ::Pack::PackImpl.pack_ber_star(io, {{ arg }})
+      {% else %}
+        byte_offset += ::Pack::PackImpl.pack_ber(io, {{ arg }})
+      {% end %}
+
     {% elsif "bBhH".includes?(directive) %}
       {% if directive == 'b' %}
         {% packer = "pack_bitstring_lsb".id %}
@@ -261,7 +334,7 @@ module Pack::PackImpl
       {% end %}
 
     {% else %}
-      # UwaAZbBhHumMpP@xX
+      # UaAZbBhHumMpP@xX
       {% raise "BUG: unknown directive #{directive}" %}
     {% end %}
   end
