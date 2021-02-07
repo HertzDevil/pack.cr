@@ -33,6 +33,40 @@ module Pack::PackImpl
     end
   end
 
+  def self.pack_with_count(value : Enumerable, count : Int)
+    check_enumerable(value)
+    byte_offset = 0
+
+    if count > 0
+      value.each do |elem|
+        byte_offset += yield elem
+        count -= 1
+        break if count <= 0
+      end
+      raise IndexError.new("not enough elements") unless count == 0
+    end
+
+    byte_offset
+  end
+
+  def self.pack_with_star(value : Enumerable)
+    check_enumerable(value)
+    byte_offset = 0
+
+    value.each do |elem|
+      byte_offset += yield elem
+    end
+
+    byte_offset
+  end
+
+  # workaround to reject unions of `Enumerable`s
+  private def self.check_enumerable(x : T) forall T
+    {% unless T.ancestors.any? { |t| t.name(generic_args: false) == "Enumerable" } %}
+      {% T.raise "T must be an unambiguous Enumerable, not a union of Enumerables" %}
+    {% end %}
+  end
+
   def self.pack_num(type : T.class, value : T) forall T
     yield value
   end
@@ -57,13 +91,6 @@ module Pack::PackImpl
       count += 1
     end
     count
-  end
-
-  # workaround to reject unions of `Enumerable`s
-  private def self.check_enumerable(x : T) forall T
-    {% unless T.ancestors.any? { |t| t.name(generic_args: false) == "Enumerable" } %}
-      {% T.raise "T must be an unambiguous Enumerable, not a union of Enumerables" %}
-    {% end %}
   end
 
   def self.pack_ber(io, value : Int::Primitive)
@@ -105,29 +132,6 @@ module Pack::PackImpl
     io.write_byte(last)
 
     digits.size
-  end
-
-  def self.pack_ber_count(io, value : Enumerable, count : Int)
-    check_enumerable(value)
-    byte_offset = 0
-    if count > 0
-      value.each do |elem|
-        byte_offset += pack_ber(io, elem)
-        count -= 1
-        break if count <= 0
-      end
-      raise IndexError.new("not enough elements") unless count == 0
-    end
-    byte_offset
-  end
-
-  def self.pack_ber_star(io, value : Enumerable)
-    check_enumerable(value)
-    byte_offset = 0
-    value.each do |elem|
-      byte_offset += pack_ber(io, elem)
-    end
-    byte_offset
   end
 
   def self.pack_bitstring_lsb(io, str : String, len : Int)
@@ -308,9 +312,13 @@ module Pack::PackImpl
 
     {% elsif directive == 'w' %}
       {% if count = command[:count] %}
-        byte_offset += ::Pack::PackImpl.pack_ber_count(io, {{ arg }}, {{ count }})
+        byte_offset += ::Pack::PackImpl.pack_with_count({{ arg }}, {{ count }}) do |elem|
+          ::Pack::PackImpl.pack_ber(io, elem)
+        end
       {% elsif command[:glob] %}
-        byte_offset += ::Pack::PackImpl.pack_ber_star(io, {{ arg }})
+        byte_offset += ::Pack::PackImpl.pack_with_star({{ arg }}) do |elem|
+          ::Pack::PackImpl.pack_ber(io, elem)
+        end
       {% else %}
         byte_offset += ::Pack::PackImpl.pack_ber(io, {{ arg }})
       {% end %}

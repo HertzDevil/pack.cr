@@ -94,7 +94,7 @@ x3 # => "234"
   * [x] Native size modifiers (`_` `!`)
   * [x] Endianness modifiers (`<` `>`)
   * [x] Floating-point types (`d` `f` `F` `e` `E` `g` `G`)
-  * [ ] BER-compressed integers (`w`)
+  * [x] BER-compressed integers (`w`)
   * [ ] Binary strings (`a` `A` `Z`)
   * [ ] UTF-8 characters / strings (`U` `U*`)
   * [x] Bitstrings and hexstrings (`b` `B` `h` `H`)
