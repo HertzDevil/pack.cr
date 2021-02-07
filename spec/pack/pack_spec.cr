@@ -1,5 +1,7 @@
 require "../spec_helper"
-require "big"
+{% unless flag?(:win32) %}
+  require "big"
+{% end %}
 
 private macro it_packs(fmt, *values_and_expected)
   {% values = values_and_expected[0..-2] %}
@@ -75,10 +77,8 @@ describe Pack do
         it_packs "w", 0x3FFF_u64, Bytes[0xFF, 0x7F]
         it_packs "w", 0x4000_u64, Bytes[0x81, 0x80, 0x00]
         it_packs "w", 0x7FFF_FFFF_FFFF_FFFF_u64, Bytes[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F]
-        it_packs "w", BigInt.new(1) << 74, Bytes[0x90, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00]
 
         expect_raises(ArgumentError) { Pack.pack "w", -1 }
-        expect_raises(ArgumentError) { Pack.pack "w", BigInt.new(-1) }
 
         it_packs "w2", {1, 10000}, Bytes[0x01, 0xCE, 0x10]
         it_packs "w3", [130, 131_u8, 132_u16], Bytes[0x81, 0x02, 0x81, 0x03, 0x81, 0x04]
@@ -89,8 +89,13 @@ describe Pack do
 
         it_packs "w*", {1, 10000}, Bytes[0x01, 0xCE, 0x10]
         it_packs "w*", [130, 131_u8, 132_u16], Bytes[0x81, 0x02, 0x81, 0x03, 0x81, 0x04]
-        it_packs "w*", iterator_of(130, 131_u8, 132_u16, BigInt.new(0)), Bytes[0x81, 0x02, 0x81, 0x03, 0x81, 0x04, 0x00]
         it_packs "w*", [] of UInt8, Bytes[]
+
+        {% unless flag?(:win32) %}
+          it_packs "w", BigInt.new(1) << 74, Bytes[0x90, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00]
+          expect_raises(ArgumentError) { Pack.pack "w", BigInt.new(-1) }
+          it_packs "w*", iterator_of(130, 131_u8, 132_u16, BigInt.new(0)), Bytes[0x81, 0x02, 0x81, 0x03, 0x81, 0x04, 0x00]
+        {% end %}
       end
     end
 
