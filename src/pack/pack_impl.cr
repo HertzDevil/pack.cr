@@ -1,352 +1,351 @@
-# :nodoc:
-module Pack::PackImpl
-  class BytesWriter < IO
-    @buffer = Bytes.new(8)
-    property pos = 0
+module Pack
+  # :nodoc:
+  module PackImpl
+    class BytesWriter < IO
+      @buffer = Bytes.new(8)
+      property pos = 0
 
-    def to_slice
-      @buffer[0, @pos]
-    end
-
-    def read(slice : Bytes)
-      raise RuntimeError.new "cannot read from BytesWriter"
-    end
-
-    def write(slice : Bytes) : Nil
-      if @pos + slice.size > @buffer.size
-        new_buffer = Bytes.new(@buffer.size * 2)
-        @buffer.copy_to(new_buffer)
-        @buffer = new_buffer
+      def to_slice
+        @buffer[0, @pos]
       end
 
-      slice.copy_to(@buffer.to_unsafe + @pos, slice.size)
-      @pos += slice.size
-    end
-
-    def seek(offset, whence : IO::Seek = IO::Seek::Set)
-      case whence
-      in .set?     then @pos = offset
-      in .current? then @pos += offset
-      in .end?     then raise ArgumentError.new "seek to end not supported"
+      def read(slice : Bytes)
+        raise RuntimeError.new "cannot read from BytesWriter"
       end
-      self
+
+      def write(slice : Bytes) : Nil
+        if @pos + slice.size > @buffer.size
+          new_buffer = Bytes.new(@buffer.size * 2)
+          @buffer.copy_to(new_buffer)
+          @buffer = new_buffer
+        end
+
+        slice.copy_to(@buffer.to_unsafe + @pos, slice.size)
+        @pos += slice.size
+      end
+
+      def seek(offset, whence : IO::Seek = IO::Seek::Set)
+        case whence
+        in .set?     then @pos = offset
+        in .current? then @pos += offset
+        in .end?     then raise ArgumentError.new "seek to end not supported"
+        end
+        self
+      end
     end
-  end
 
-  def self.pack_with_count(value : Enumerable, count : Int)
-    check_enumerable(value)
-    byte_offset = 0
+    def self.pack_with_count(value : Enumerable, count : Int)
+      check_enumerable(value)
+      byte_offset = 0
 
-    if count > 0
+      if count > 0
+        value.each do |elem|
+          byte_offset += yield elem
+          count -= 1
+          break if count <= 0
+        end
+        raise IndexError.new("not enough elements") unless count == 0
+      end
+
+      byte_offset
+    end
+
+    def self.pack_with_star(value : Enumerable)
+      check_enumerable(value)
+      byte_offset = 0
+
       value.each do |elem|
         byte_offset += yield elem
-        count -= 1
-        break if count <= 0
       end
-      raise IndexError.new("not enough elements") unless count == 0
+
+      byte_offset
     end
 
-    byte_offset
-  end
-
-  def self.pack_with_star(value : Enumerable)
-    check_enumerable(value)
-    byte_offset = 0
-
-    value.each do |elem|
-      byte_offset += yield elem
+    # workaround to reject unions of `Enumerable`s
+    private def self.check_enumerable(x : T) forall T
+      {% unless T.ancestors.any? { |t| t.name(generic_args: false) == "Enumerable" } %}
+        {% T.raise "T must be an unambiguous Enumerable, not a union of Enumerables" %}
+      {% end %}
     end
 
-    byte_offset
-  end
+    def self.pack_num(type : T.class, value : T) forall T
+      yield value
+    end
 
-  # workaround to reject unions of `Enumerable`s
-  private def self.check_enumerable(x : T) forall T
-    {% unless T.ancestors.any? { |t| t.name(generic_args: false) == "Enumerable" } %}
-      {% T.raise "T must be an unambiguous Enumerable, not a union of Enumerables" %}
-    {% end %}
-  end
+    def self.pack_num_count(type : T.class, value : Enumerable(T), count : Int) forall T
+      check_enumerable(value)
+      if count > 0
+        value.each do |elem|
+          pack_num(type, elem) { |x| yield x }
+          count -= 1
+          break if count <= 0
+        end
+        raise IndexError.new("not enough elements") unless count == 0
+      end
+    end
 
-  def self.pack_num(type : T.class, value : T) forall T
-    yield value
-  end
-
-  def self.pack_num_count(type : T.class, value : Enumerable(T), count : Int) forall T
-    check_enumerable(value)
-    if count > 0
+    def self.pack_num_star(type : T.class, value : Enumerable(T)) forall T
+      check_enumerable(value)
+      count = 0
       value.each do |elem|
         pack_num(type, elem) { |x| yield x }
-        count -= 1
-        break if count <= 0
-      end
-      raise IndexError.new("not enough elements") unless count == 0
-    end
-  end
-
-  def self.pack_num_star(type : T.class, value : Enumerable(T)) forall T
-    check_enumerable(value)
-    count = 0
-    value.each do |elem|
-      pack_num(type, elem) { |x| yield x }
-      count += 1
-    end
-    count
-  end
-
-  def self.pack_ber(io, value : Int::Primitive)
-    if value < 0
-      raise ArgumentError.new("can't pack negative numbers with 'w' directive")
-    end
-
-    digits = value.digits(128)
-    last = digits.shift
-
-    digits.reverse_each do |digit|
-      io.write_byte(digit.to_u8! | 0x80_u8)
-    end
-    io.write_byte(last.to_u8!)
-
-    digits.size
-  end
-
-  def self.pack_ber(io, value : BigInt)
-    if value < 0
-      raise ArgumentError.new("can't pack negative numbers with 'w' directive")
-    end
-
-    if value == 0
-      io.write_byte(0)
-      return 1
-    end
-
-    digits = Array(UInt8).new
-    while value != 0
-      digits << value.remainder(128).to_u8!
-      value = value.tdiv(128)
-    end
-
-    last = digits.shift
-    digits.reverse_each do |digit|
-      io.write_byte(digit | 0x80_u8)
-    end
-    io.write_byte(last)
-
-    digits.size
-  end
-
-  def self.pack_bitstring_lsb(io, str : String, len : Int)
-    raise IndexError.new("not enough elements") unless len <= str.size
-    if len > 0
-      count = 0
-      b = 0_u8
-      str.each_char do |ch|
-        b <<= 1
-        b |= ch.to_i(2)
         count += 1
-        break if count >= len
-        if count % 8 == 0
-          io.write_byte(b)
-          b = 0_u8
-        end
       end
-      io.write_byte(b)
+      count
     end
-    (len + 7) // 8
-  end
 
-  def self.pack_bitstring_msb(io, str : String, len : Int)
-    raise IndexError.new("not enough elements") unless len <= str.size
-    if len > 0
-      count = 0
-      b = 0_u8
-      str.each_char do |ch|
-        i = count % 8
-        b |= ch.to_i(2) << (7 - i)
-        count += 1
-        break if count >= len
-        if i == 7
-          io.write_byte(b)
-          b = 0_u8
-        end
+    def self.pack_ber(io, value : Int::Primitive)
+      if value < 0
+        raise ArgumentError.new("can't pack negative numbers with 'w' directive")
       end
-      io.write_byte(b)
-    end
-    (len + 7) // 8
-  end
 
-  def self.pack_hexstring_lsb(io, str : String, len : Int)
-    raise IndexError.new("not enough elements") unless len <= str.size
-    if len > 0
-      count = 0
-      b = 0_u8
-      str.each_char do |ch|
-        i = count % 2
-        b |= ch.to_i(16) << (i * 4)
-        count += 1
-        break if count >= len
-        if count % 2 == 0
-          io.write_byte(b)
-          b = 0_u8
-        end
+      digits = value.digits(128)
+      last = digits.shift
+
+      digits.reverse_each do |digit|
+        io.write_byte(digit.to_u8! | 0x80_u8)
       end
-      io.write_byte(b)
-    end
-    (len + 1) // 8
-  end
+      io.write_byte(last.to_u8!)
 
-  def self.pack_hexstring_msb(io, str : String, len : Int)
-    raise IndexError.new("not enough elements") unless len <= str.size
-    if len > 0
-      count = 0
-      b = 0_u8
-      str.each_char do |ch|
-        i = count % 2
-        b |= ch.to_i(16) << (4 - i * 4)
-        count += 1
-        break if count >= len
-        if i == 1
-          io.write_byte(b)
-          b = 0_u8
-        end
+      digits.size
+    end
+
+    def self.pack_ber(io, value : BigInt)
+      if value < 0
+        raise ArgumentError.new("can't pack negative numbers with 'w' directive")
       end
-      io.write_byte(b)
+
+      if value == 0
+        io.write_byte(0)
+        return 1
+      end
+
+      digits = Array(UInt8).new
+      while value != 0
+        digits << value.remainder(128).to_u8!
+        value = value.tdiv(128)
+      end
+
+      last = digits.shift
+      digits.reverse_each do |digit|
+        io.write_byte(digit | 0x80_u8)
+      end
+      io.write_byte(last)
+
+      digits.size
     end
-    (len + 1) // 8
-  end
 
-  macro do_pack1(io, byte_offset, arg, command)
-    {% p [arg, command] if false %}
-
-    {% directive = command[:directive] %}
-    {% endianness = command[:endianness] %}
-
-    {% if "cCsSlLqQiIjJnNvVdfFeEgG".includes?(directive) %}
-      {% if directive == 'n' %}
-        {% directive, endianness = 'S', :NetworkEndian %}
-      {% elsif directive == 'N' %}
-        {% directive, endianness = 'L', :NetworkEndian %}
-      {% elsif directive == 'v' %}
-        {% directive, endianness = 'S', :LittleEndian %}
-      {% elsif directive == 'V' %}
-        {% directive, endianness = 'L', :LittleEndian %}
-      {% elsif directive == 'e' %}
-        {% directive, endianness = 'f', :LittleEndian %}
-      {% elsif directive == 'E' %}
-        {% directive, endianness = 'd', :LittleEndian %}
-      {% elsif directive == 'g' %}
-        {% directive, endianness = 'f', :BigEndian %}
-      {% elsif directive == 'G' %}
-        {% directive, endianness = 'd', :BigEndian %}
-      {% end %}
-
-      {%
-        if directive == 'i'
-          value_type = ::LibC::Int
-        elsif directive == 'I'
-          value_type = ::LibC::UInt
-        elsif directive == 'j'
-          value_type = ::LibC::Int64T
-        elsif directive == 'J'
-          value_type = ::LibC::UInt64T
-        elsif directive == 'F'
-          value_type = ::LibC::Float32
-        elsif command[:bang]
-          if directive == 's'
-            value_type = ::LibC::Short
-          elsif directive == 'S'
-            value_type = ::LibC::UShort
-          elsif directive == 'l'
-            value_type = ::LibC::Long
-          elsif directive == 'L'
-            value_type = ::LibC::ULong
-          elsif directive == 'q'
-            value_type = ::LibC::LongLong
-          elsif directive == 'Q'
-            value_type = ::LibC::ULongLong
-          end
-        else
-          if directive == 'c'
-            value_type = ::Int8
-          elsif directive == 'C'
-            value_type = ::UInt8
-          elsif directive == 's'
-            value_type = ::Int16
-          elsif directive == 'S'
-            value_type = ::UInt16
-          elsif directive == 'l'
-            value_type = ::Int32
-          elsif directive == 'L'
-            value_type = ::UInt32
-          elsif directive == 'q'
-            value_type = ::Int64
-          elsif directive == 'Q'
-            value_type = ::UInt64
-          elsif directive == 'f'
-            value_type = ::Float32
-          elsif directive == 'd'
-            value_type = ::Float64
+    def self.pack_bitstring_lsb(io, str : String, len : Int)
+      raise IndexError.new("not enough elements") unless len <= str.size
+      if len > 0
+        count = 0
+        b = 0_u8
+        str.each_char do |ch|
+          b <<= 1
+          b |= ch.to_i(2)
+          count += 1
+          break if count >= len
+          if count % 8 == 0
+            io.write_byte(b)
+            b = 0_u8
           end
         end
-      %}
+        io.write_byte(b)
+      end
+      (len + 7) // 8
+    end
 
-      {% converter = ::IO::ByteFormat.constant(endianness || :SystemEndian) %}
-
-      {% if count = command[:count] %}
-        ::Pack::PackImpl.pack_num_count({{ value_type }}, {{ arg }}, {{ count }}) do |value|
-          {{ io }}.write_bytes(value, {{ converter }})
+    def self.pack_bitstring_msb(io, str : String, len : Int)
+      raise IndexError.new("not enough elements") unless len <= str.size
+      if len > 0
+        count = 0
+        b = 0_u8
+        str.each_char do |ch|
+          i = count % 8
+          b |= ch.to_i(2) << (7 - i)
+          count += 1
+          break if count >= len
+          if i == 7
+            io.write_byte(b)
+            b = 0_u8
+          end
         end
-        {{ byte_offset }} += sizeof({{ value_type }}) * {{ count }}
-      {% elsif command[:glob] %}
-        {{ byte_offset }} += sizeof({{ value_type }}) * ::Pack::PackImpl.pack_num_star({{ value_type }}, {{ arg }}) { |value|
-          {{ io }}.write_bytes(value, {{ converter }})
-        }
+        io.write_byte(b)
+      end
+      (len + 7) // 8
+    end
+
+    def self.pack_hexstring_lsb(io, str : String, len : Int)
+      raise IndexError.new("not enough elements") unless len <= str.size
+      if len > 0
+        count = 0
+        b = 0_u8
+        str.each_char do |ch|
+          i = count % 2
+          b |= ch.to_i(16) << (i * 4)
+          count += 1
+          break if count >= len
+          if count % 2 == 0
+            io.write_byte(b)
+            b = 0_u8
+          end
+        end
+        io.write_byte(b)
+      end
+      (len + 1) // 8
+    end
+
+    def self.pack_hexstring_msb(io, str : String, len : Int)
+      raise IndexError.new("not enough elements") unless len <= str.size
+      if len > 0
+        count = 0
+        b = 0_u8
+        str.each_char do |ch|
+          i = count % 2
+          b |= ch.to_i(16) << (4 - i * 4)
+          count += 1
+          break if count >= len
+          if i == 1
+            io.write_byte(b)
+            b = 0_u8
+          end
+        end
+        io.write_byte(b)
+      end
+      (len + 1) // 8
+    end
+
+    macro do_pack1(io, byte_offset, arg, command)
+      {% p [arg, command] if false %}
+
+      {% directive = command[:directive] %}
+      {% endianness = command[:endianness] %}
+
+      {% if "cCsSlLqQiIjJnNvVdfFeEgG".includes?(directive) %}
+        {% if directive == 'n' %}
+          {% directive, endianness = 'S', :NetworkEndian %}
+        {% elsif directive == 'N' %}
+          {% directive, endianness = 'L', :NetworkEndian %}
+        {% elsif directive == 'v' %}
+          {% directive, endianness = 'S', :LittleEndian %}
+        {% elsif directive == 'V' %}
+          {% directive, endianness = 'L', :LittleEndian %}
+        {% elsif directive == 'e' %}
+          {% directive, endianness = 'f', :LittleEndian %}
+        {% elsif directive == 'E' %}
+          {% directive, endianness = 'd', :LittleEndian %}
+        {% elsif directive == 'g' %}
+          {% directive, endianness = 'f', :BigEndian %}
+        {% elsif directive == 'G' %}
+          {% directive, endianness = 'd', :BigEndian %}
+        {% end %}
+
+        {%
+          if directive == 'i'
+            value_type = ::LibC::Int
+          elsif directive == 'I'
+            value_type = ::LibC::UInt
+          elsif directive == 'j'
+            value_type = ::LibC::Int64T
+          elsif directive == 'J'
+            value_type = ::LibC::UInt64T
+          elsif directive == 'F'
+            value_type = ::LibC::Float32
+          elsif command[:bang]
+            if directive == 's'
+              value_type = ::LibC::Short
+            elsif directive == 'S'
+              value_type = ::LibC::UShort
+            elsif directive == 'l'
+              value_type = ::LibC::Long
+            elsif directive == 'L'
+              value_type = ::LibC::ULong
+            elsif directive == 'q'
+              value_type = ::LibC::LongLong
+            elsif directive == 'Q'
+              value_type = ::LibC::ULongLong
+            end
+          else
+            if directive == 'c'
+              value_type = ::Int8
+            elsif directive == 'C'
+              value_type = ::UInt8
+            elsif directive == 's'
+              value_type = ::Int16
+            elsif directive == 'S'
+              value_type = ::UInt16
+            elsif directive == 'l'
+              value_type = ::Int32
+            elsif directive == 'L'
+              value_type = ::UInt32
+            elsif directive == 'q'
+              value_type = ::Int64
+            elsif directive == 'Q'
+              value_type = ::UInt64
+            elsif directive == 'f'
+              value_type = ::Float32
+            elsif directive == 'd'
+              value_type = ::Float64
+            end
+          end
+        %}
+
+        {% converter = ::IO::ByteFormat.constant(endianness || :SystemEndian) %}
+
+        {% if count = command[:count] %}
+          ::Pack::PackImpl.pack_num_count({{ value_type }}, {{ arg }}, {{ count }}) do |value|
+            {{ io }}.write_bytes(value, {{ converter }})
+          end
+          {{ byte_offset }} += sizeof({{ value_type }}) * {{ count }}
+        {% elsif command[:glob] %}
+          {{ byte_offset }} += sizeof({{ value_type }}) * ::Pack::PackImpl.pack_num_star({{ value_type }}, {{ arg }}) { |value|
+            {{ io }}.write_bytes(value, {{ converter }})
+          }
+        {% else %}
+          ::Pack::PackImpl.pack_num({{ value_type }}, {{ arg }}) do |value|
+            {{ io }}.write_bytes(value, {{ converter }})
+          end
+          {{ byte_offset }} += sizeof({{ value_type }})
+        {% end %}
+
+      {% elsif directive == 'w' %}
+        {% if count = command[:count] %}
+          {{ byte_offset }} += ::Pack::PackImpl.pack_with_count({{ arg }}, {{ count }}) do |elem|
+            ::Pack::PackImpl.pack_ber({{ io }}, elem)
+          end
+        {% elsif command[:glob] %}
+          {{ byte_offset }} += ::Pack::PackImpl.pack_with_star({{ arg }}) do |elem|
+            ::Pack::PackImpl.pack_ber({{ io }}, elem)
+          end
+        {% else %}
+          {{ byte_offset }} += ::Pack::PackImpl.pack_ber({{ io }}, {{ arg }})
+        {% end %}
+
+      {% elsif "bBhH".includes?(directive) %}
+        {% if directive == 'b' %}
+          {% packer = "pack_bitstring_lsb".id %}
+        {% elsif directive == 'B' %}
+          {% packer = "pack_bitstring_msb".id %}
+        {% elsif directive == 'h' %}
+          {% packer = "pack_hexstring_lsb".id %}
+        {% elsif directive == 'H' %}
+          {% packer = "pack_hexstring_msb".id %}
+        {% end %}
+
+        {% if command[:glob] %}
+          %arg = {{ arg }}
+          {{ byte_offset }} += ::Pack::PackImpl.{{ packer }}({{ io }}, %arg, %arg.size)
+        {% else %}
+          {{ byte_offset }} += ::Pack::PackImpl.{{ packer }}({{ io }}, {{ arg }}, {{ command[:count] || 1 }})
+        {% end %}
+
       {% else %}
-        ::Pack::PackImpl.pack_num({{ value_type }}, {{ arg }}) do |value|
-          {{ io }}.write_bytes(value, {{ converter }})
-        end
-        {{ byte_offset }} += sizeof({{ value_type }})
+        # UaAZbBhHumMpP@xX
+        {% raise "BUG: unknown directive #{directive}" %}
       {% end %}
-
-    {% elsif directive == 'w' %}
-      {% if count = command[:count] %}
-        {{ byte_offset }} += ::Pack::PackImpl.pack_with_count({{ arg }}, {{ count }}) do |elem|
-          ::Pack::PackImpl.pack_ber({{ io }}, elem)
-        end
-      {% elsif command[:glob] %}
-        {{ byte_offset }} += ::Pack::PackImpl.pack_with_star({{ arg }}) do |elem|
-          ::Pack::PackImpl.pack_ber({{ io }}, elem)
-        end
-      {% else %}
-        {{ byte_offset }} += ::Pack::PackImpl.pack_ber({{ io }}, {{ arg }})
-      {% end %}
-
-    {% elsif "bBhH".includes?(directive) %}
-      {% if directive == 'b' %}
-        {% packer = "pack_bitstring_lsb".id %}
-      {% elsif directive == 'B' %}
-        {% packer = "pack_bitstring_msb".id %}
-      {% elsif directive == 'h' %}
-        {% packer = "pack_hexstring_lsb".id %}
-      {% elsif directive == 'H' %}
-        {% packer = "pack_hexstring_msb".id %}
-      {% end %}
-
-      {% if command[:glob] %}
-        %arg = {{ arg }}
-        {{ byte_offset }} += ::Pack::PackImpl.{{ packer }}({{ io }}, %arg, %arg.size)
-      {% else %}
-        {{ byte_offset }} += ::Pack::PackImpl.{{ packer }}({{ io }}, {{ arg }}, {{ command[:count] || 1 }})
-      {% end %}
-
-    {% else %}
-      # UaAZbBhHumMpP@xX
-      {% raise "BUG: unknown directive #{directive}" %}
-    {% end %}
+    end
   end
-end
 
-# :nodoc:
-module Pack
   # Packs *args* into the given *io* according to the given format string *fmt*.
   # The return value is unspecified.
   #
