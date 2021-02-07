@@ -106,7 +106,7 @@ require "./pack/unpack_impl"
 # ### Floating-point values
 #
 # These directives pack and unpack values of type `T`, where `T` <
-# `Int::Primitive`. The type `T` depends on the directive being used:
+# `Float::Primitive`. The type `T` depends on the directive being used:
 #
 # * `Float32`: `f` `e` `g`
 # * `Float64`: `d` `E` `G`

@@ -387,6 +387,7 @@ module Pack::UnpackImpl
   end
 end
 
+# :nodoc:
 module Pack
   # Unpacks a buffer of *bytes* according to the given format string *fmt*.
   # Returns a `Tuple` of unpacked values, without flattening commands that

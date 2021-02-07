@@ -345,6 +345,7 @@ module Pack::PackImpl
   end
 end
 
+# :nodoc:
 module Pack
   # Packs *args* into the given *io* according to the given format string *fmt*.
   # The return value is unspecified.
