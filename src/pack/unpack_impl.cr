@@ -148,9 +148,8 @@ module Pack::UnpackImpl
     {value, byte_offset}
   end
 
-  # accesses `obj` and `byte_offset` from outer scope
   # defines `sz` and `elem_count` in outer scope
-  macro do_unpack1(command)
+  macro do_unpack1(obj, byte_offset, command)
     {% p command if false %}
 
     {% directive = command[:directive] %}
@@ -230,63 +229,63 @@ module Pack::UnpackImpl
 
       {% if count = command[:count] %}
         %value = StaticArray({{ value_type }}, {{ count }}).new do |i|
-          {{ converter }}.decode({{ value_type }}, obj[byte_offset + sz * i, sz])
+          {{ converter }}.decode({{ value_type }}, {{ obj }}[{{ byte_offset }} + sz * i, sz])
         end
-        byte_offset += sz * {{ count }}
+        {{ byte_offset }} += sz * {{ count }}
       {% elsif command[:glob] %}
-        elem_count = (obj.size - byte_offset) // sz
+        elem_count = ({{ obj }}.size - {{ byte_offset }}) // sz
         %value = Array({{ value_type }}).new(elem_count) do |i|
-          {{ converter }}.decode({{ value_type }}, obj[byte_offset + sz * i, sz])
+          {{ converter }}.decode({{ value_type }}, {{ obj }}[{{ byte_offset }} + sz * i, sz])
         end
-        byte_offset += sz * elem_count
+        {{ byte_offset }} += sz * elem_count
       {% else %}
-        %value = {{ converter }}.decode({{ value_type }}, obj[byte_offset, sz])
-        byte_offset += sz
+        %value = {{ converter }}.decode({{ value_type }}, {{ obj }}[{{ byte_offset }}, sz])
+        {{ byte_offset }} += sz
       {% end %}
 
     {% elsif directive == 'U' %}
       {% if count = command[:count] %}
         %value = String.build do |b|
           {{ count }}.times do
-            ch, byte_offset = Pack::UnpackImpl.unpack_utf8(obj, byte_offset)
+            ch, {{ byte_offset }} = Pack::UnpackImpl.unpack_utf8({{ obj }}, {{ byte_offset }})
             b << ch
           end
         end
       {% elsif command[:glob] %}
         %value = String.build do |b|
-          while byte_offset < obj.size
-            ch, byte_offset = Pack::UnpackImpl.unpack_utf8(obj, byte_offset)
+          while {{ byte_offset }} < {{ obj }}.size
+            ch, {{ byte_offset }} = Pack::UnpackImpl.unpack_utf8({{ obj }}, {{ byte_offset }})
             b << ch
           end
         end
       {% else %}
-        %value, byte_offset = Pack::UnpackImpl.unpack_utf8(obj, byte_offset)
+        %value, {{ byte_offset }} = Pack::UnpackImpl.unpack_utf8({{ obj }}, {{ byte_offset }})
       {% end %}
 
     {% elsif directive == 'w' %}
       {% if count = command[:count] %}
         %value = StaticArray(UInt64, {{ count }}).new do
-          value, byte_offset = Pack::UnpackImpl.unpack_ber(obj, byte_offset)
+          value, {{ byte_offset }} = Pack::UnpackImpl.unpack_ber({{ obj }}, {{ byte_offset }})
           value
         end
       {% elsif command[:glob] %}
         %value = Array(UInt64).new
-        while byte_offset < obj.size
-          value, byte_offset = Pack::UnpackImpl.unpack_ber(obj, byte_offset)
+        while {{ byte_offset }} < {{ obj }}.size
+          value, {{ byte_offset }} = Pack::UnpackImpl.unpack_ber({{ obj }}, {{ byte_offset }})
           %value << value
         end
       {% else %}
-        %value, byte_offset = Pack::UnpackImpl.unpack_ber(obj, byte_offset)
+        %value, {{ byte_offset }} = Pack::UnpackImpl.unpack_ber({{ obj }}, {{ byte_offset }})
       {% end %}
 
     {% elsif directive == 'a' || directive == 'A' %}
       {% if command[:glob] %}
-        elem_count = obj.size - byte_offset
+        elem_count = {{ obj }}.size - {{ byte_offset }}
       {% else %}
-        elem_count = { obj.size - byte_offset, {{ command[:count] || 1 }} }.min
+        elem_count = { {{ obj }}.size - {{ byte_offset }}, {{ command[:count] || 1 }} }.min
       {% end %}
-      %value = obj[byte_offset, elem_count]
-      byte_offset += elem_count
+      %value = {{ obj }}[{{ byte_offset }}, elem_count]
+      {{ byte_offset }} += elem_count
 
       {% if directive == 'A' %}
         sz = %value.size
@@ -299,18 +298,18 @@ module Pack::UnpackImpl
     {% elsif directive == 'Z' %}
       {% if command[:glob] %}
         elem_count = 0
-        sz = byte_offset
-        while sz < obj.size
+        sz = {{ byte_offset }}
+        while sz < {{ obj }}.size
           sz += 1
-          break if obj.unsafe_fetch(sz - 1) == 0x00_u8
+          break if {{ obj }}.unsafe_fetch(sz - 1) == 0x00_u8
           elem_count += 1
         end
-        %value = obj[byte_offset, elem_count]
-        byte_offset = sz
+        %value = {{ obj }}[{{ byte_offset }}, elem_count]
+        {{ byte_offset }} = sz
       {% else %}
-        elem_count = { obj.size - byte_offset, {{ command[:count] || 1 }} }.min
-        %value = obj[byte_offset, elem_count]
-        byte_offset += elem_count
+        elem_count = { {{ obj }}.size - {{ byte_offset }}, {{ command[:count] || 1 }} }.min
+        %value = {{ obj }}[{{ byte_offset }}, elem_count]
+        {{ byte_offset }} += elem_count
 
         elem_count = 0
         while elem_count < %value.size && %value.unsafe_fetch(elem_count) != 0x00_u8
@@ -321,60 +320,60 @@ module Pack::UnpackImpl
 
     {% elsif directive == 'h' || directive == 'H' %}
       {% if command[:glob] %}
-        elem_count = (obj.size - byte_offset) * 2
+        elem_count = ({{ obj }}.size - {{ byte_offset }}) * 2
       {% else %}
         elem_count = {{ command[:count] || 1 }}
       {% end %}
 
       {% if directive == 'H' %}
-        %value, byte_offset = Pack::UnpackImpl.unpack_h_msb(obj, byte_offset, elem_count)
+        %value, {{ byte_offset }} = Pack::UnpackImpl.unpack_h_msb({{ obj }}, {{ byte_offset }}, elem_count)
       {% else %}
-        %value, byte_offset = Pack::UnpackImpl.unpack_h_lsb(obj, byte_offset, elem_count)
+        %value, {{ byte_offset }} = Pack::UnpackImpl.unpack_h_lsb({{ obj }}, {{ byte_offset }}, elem_count)
       {% end %}
 
     {% elsif directive == 'b' || directive == 'B' %}
       {% if command[:glob] %}
-        elem_count = (obj.size - byte_offset) * 8
+        elem_count = ({{ obj }}.size - {{ byte_offset }}) * 8
       {% else %}
         elem_count = {{ command[:count] || 1 }}
       {% end %}
 
       {% if directive == 'B' %}
-        %value, byte_offset = Pack::UnpackImpl.unpack_b_msb(obj, byte_offset, elem_count)
+        %value, {{ byte_offset }} = Pack::UnpackImpl.unpack_b_msb({{ obj }}, {{ byte_offset }}, elem_count)
       {% else %}
-        %value, byte_offset = Pack::UnpackImpl.unpack_b_lsb(obj, byte_offset, elem_count)
+        %value, {{ byte_offset }} = Pack::UnpackImpl.unpack_b_lsb({{ obj }}, {{ byte_offset }}, elem_count)
       {% end %}
 
     {% elsif directive == 'P' %}
       sz = sizeof(Void*)
       {% if count = command[:count] %}
-        %value = Slice.new(obj[byte_offset, sz].to_unsafe.as(UInt8**).value, {{ count }})
+        %value = Slice.new({{ obj }}[{{ byte_offset }}, sz].to_unsafe.as(UInt8**).value, {{ count }})
       {% else %}
-        %value = obj[byte_offset, sz].to_unsafe.as(Void**).value
+        %value = {{ obj }}[{{ byte_offset }}, sz].to_unsafe.as(Void**).value
       {% end %}
-      byte_offset += sz
+      {{ byte_offset }} += sz
     {% elsif directive == 'p' %}
       sz = sizeof(UInt8*)
       {% if count = command[:count] %}
-        %value = String.new(obj[byte_offset, sz].to_unsafe.as(UInt8**).value, {{ count }})
+        %value = String.new({{ obj }}[{{ byte_offset }}, sz].to_unsafe.as(UInt8**).value, {{ count }})
       {% else %}
-        %value = String.new(obj[byte_offset, sz].to_unsafe.as(UInt8**).value)
+        %value = String.new({{ obj }}[{{ byte_offset }}, sz].to_unsafe.as(UInt8**).value)
       {% end %}
-      byte_offset += sz
+      {{ byte_offset }} += sz
 
     {% elsif directive == '@' %}
-      byte_offset = {{ command[:count] || 0 }}
+      {{ byte_offset }} = {{ command[:count] || 0 }}
     {% elsif directive == 'x' %}
       {% if command[:glob] %}
-        byte_offset = obj.size
+        {{ byte_offset }} = {{ obj }}.size
       {% else %}
-        byte_offset += {{ command[:count] || 1 }}
+        {{ byte_offset }} += {{ command[:count] || 1 }}
       {% end %}
     {% elsif directive == 'X' %}
       {% if command[:glob] %}
-        byte_offset = 0
+        {{ byte_offset }} = 0
       {% else %}
-        byte_offset = { 0, byte_offset - {{ command[:count] || 1 }} }.max
+        {{ byte_offset }} = { 0, {{ byte_offset }} - {{ command[:count] || 1 }} }.max
       {% end %}
 
     {% else %}
@@ -502,15 +501,15 @@ module Pack
       {% end %}
     {% end %}
 
-    obj = Pack::UnpackImpl.to_slice({{ bytes }})
-    byte_offset = 0
+    %obj = Pack::UnpackImpl.to_slice({{ bytes }})
+    %byte_offset = 0
 
     {% used_indices = [] of ASTNode %}
     {% for command in commands %}
       {% if "@xX".includes?(command[:directive]) %}
-        Pack::UnpackImpl.do_unpack1({{ command }})
+        Pack::UnpackImpl.do_unpack1(%obj, %byte_offset, {{ command }})
       {% else %}
-        %values{command[:index]} = Pack::UnpackImpl.do_unpack1({{ command }})
+        %values{command[:index]} = Pack::UnpackImpl.do_unpack1(%obj, %byte_offset, {{ command }})
         {% used_indices << command[:index] %}
       {% end %}
     {% end %}

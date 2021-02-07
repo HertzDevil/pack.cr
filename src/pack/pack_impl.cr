@@ -214,9 +214,7 @@ module Pack::PackImpl
     (len + 1) // 8
   end
 
-  # accesses `io` and `byte_offset` from outer scope
-  # defines `elem_count` in outer scope
-  macro do_pack1(arg, command)
+  macro do_pack1(io, byte_offset, arg, command)
     {% p [arg, command] if false %}
 
     {% directive = command[:directive] %}
@@ -295,32 +293,31 @@ module Pack::PackImpl
 
       {% if count = command[:count] %}
         ::Pack::PackImpl.pack_num_count({{ value_type }}, {{ arg }}, {{ count }}) do |value|
-          io.write_bytes(value, {{ converter }})
+          {{ io }}.write_bytes(value, {{ converter }})
         end
-        byte_offset += sizeof({{ value_type }}) * {{ count }}
+        {{ byte_offset }} += sizeof({{ value_type }}) * {{ count }}
       {% elsif command[:glob] %}
-        elem_count = ::Pack::PackImpl.pack_num_star({{ value_type }}, {{ arg }}) do |value|
-          io.write_bytes(value, {{ converter }})
-        end
-        byte_offset += sizeof({{ value_type }}) * elem_count
+        {{ byte_offset }} += sizeof({{ value_type }}) * ::Pack::PackImpl.pack_num_star({{ value_type }}, {{ arg }}) { |value|
+          {{ io }}.write_bytes(value, {{ converter }})
+        }
       {% else %}
         ::Pack::PackImpl.pack_num({{ value_type }}, {{ arg }}) do |value|
-          io.write_bytes(value, {{ converter }})
+          {{ io }}.write_bytes(value, {{ converter }})
         end
-        byte_offset += sizeof({{ value_type }})
+        {{ byte_offset }} += sizeof({{ value_type }})
       {% end %}
 
     {% elsif directive == 'w' %}
       {% if count = command[:count] %}
-        byte_offset += ::Pack::PackImpl.pack_with_count({{ arg }}, {{ count }}) do |elem|
-          ::Pack::PackImpl.pack_ber(io, elem)
+        {{ byte_offset }} += ::Pack::PackImpl.pack_with_count({{ arg }}, {{ count }}) do |elem|
+          ::Pack::PackImpl.pack_ber({{ io }}, elem)
         end
       {% elsif command[:glob] %}
-        byte_offset += ::Pack::PackImpl.pack_with_star({{ arg }}) do |elem|
-          ::Pack::PackImpl.pack_ber(io, elem)
+        {{ byte_offset }} += ::Pack::PackImpl.pack_with_star({{ arg }}) do |elem|
+          ::Pack::PackImpl.pack_ber({{ io }}, elem)
         end
       {% else %}
-        byte_offset += ::Pack::PackImpl.pack_ber(io, {{ arg }})
+        {{ byte_offset }} += ::Pack::PackImpl.pack_ber({{ io }}, {{ arg }})
       {% end %}
 
     {% elsif "bBhH".includes?(directive) %}
@@ -336,9 +333,9 @@ module Pack::PackImpl
 
       {% if command[:glob] %}
         %arg = {{ arg }}
-        byte_offset += ::Pack::PackImpl.{{ packer }}(io, %arg, %arg.size)
+        {{ byte_offset }} += ::Pack::PackImpl.{{ packer }}({{ io }}, %arg, %arg.size)
       {% else %}
-        byte_offset += ::Pack::PackImpl.{{ packer }}(io, {{ arg }}, {{ command[:count] || 1 }})
+        {{ byte_offset }} += ::Pack::PackImpl.{{ packer }}({{ io }}, {{ arg }}, {{ command[:count] || 1 }})
       {% end %}
 
     {% else %}
@@ -451,8 +448,8 @@ module Pack
       {% end %}
     {% end %}
 
-    io = ({{ io }}).as(::IO)
-    byte_offset = 0
+    %io = ({{ io }}).as(::IO)
+    %byte_offset = 0
 
     {% arg_pos = 0 %}
     {% for command in commands %}
@@ -464,7 +461,7 @@ module Pack
       {% end %}
       {% arg = args[arg_pos] %}
       {% arg_pos += 1 %}
-      Pack::PackImpl.do_pack1({{ arg }}, {{ command }})
+      Pack::PackImpl.do_pack1(%io, %byte_offset, {{ arg }}, {{ command }})
     {% end %}
 
     {% if arg_pos < args.size %}
