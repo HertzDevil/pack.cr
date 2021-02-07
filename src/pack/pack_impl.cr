@@ -346,6 +346,21 @@ module Pack::PackImpl
 end
 
 module Pack
+  # Packs *args* into the given *io* according to the given format string *fmt*.
+  # The return value is unspecified.
+  #
+  # Commands that contain repeat counts or globs do not consume multiple
+  # arguments.
+  #
+  # *io* must be an `IO`. *fmt* must be a string literal or string constant
+  # representing a valid sequence of unpacking commands. The arity and types of
+  # *args* depend on the commands given.
+  #
+  # ```
+  # io = IO::Memory.new
+  # Pack.pack_to(io, "csl>", 1_i8, 1000, 100000000)
+  # io.to_slice # => Bytes[0x01, 0xE8, 0x03, 0x05, 0xF5, 0xE1, 0x00]
+  # ```
   macro pack_to(io, fmt, *args)
     {% if fmt.is_a?(Path) %}
       {% fmt = fmt.resolve %}
@@ -469,6 +484,19 @@ module Pack
     {% end %}
   end
 
+  # Packs *args* into a new writable `Bytes` according to the given format
+  # string *fmt*.
+  #
+  # Commands that contain repeat counts or globs do not consume multiple
+  # arguments.
+  #
+  # *fmt* must be a string literal or string constant representing a valid
+  # sequence of unpacking commands. The arity and types of *args* depend on the
+  # commands given.
+  #
+  # ```
+  # Pack.pack("csl>", 1_i8, 1000, 100000000) # => Bytes[0x01, 0xE8, 0x03, 0x05, 0xF5, 0xE1, 0x00]
+  # ```
   macro pack(fmt, *args)
     %io = ::Pack::PackImpl::BytesWriter.new
     ::Pack.pack_to(%io, {{ fmt }}, {{ args.splat }})

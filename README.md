@@ -89,11 +89,11 @@ x3 # => "234"
 ### Current features
 
 * [ ] Packing
-  * [x] Fixed-size integral types (`c` `C` `s` `S` `l` `L` `q` `Q` `n` `N` `v` `V`)
-  * [x] Native integral types (`i` `I` `l` `L` `j` `J`)
+  * [x] Fixed-size integers (`c` `C` `s` `S` `l` `L` `q` `Q` `n` `N` `v` `V`)
+  * [x] Native integers (`i` `I` `j` `J`)
   * [x] Native size modifiers (`_` `!`)
   * [x] Endianness modifiers (`<` `>`)
-  * [x] Floating-point types (`d` `f` `F` `e` `E` `g` `G`)
+  * [x] Floating-point values (`d` `f` `F` `e` `E` `g` `G`)
   * [x] BER-compressed integers (`w`)
   * [ ] Binary strings (`a` `A` `Z`)
   * [ ] UTF-8 characters / strings (`U` `U*`)
@@ -106,11 +106,11 @@ x3 # => "234"
   * [ ] Aligned offsets (`x!` `X!`)
   * [x] Repeat counts and globs (`*`)
 * [ ] Unpacking
-  * [x] Fixed-size integral types (`c` `C` `s` `S` `l` `L` `q` `Q` `n` `N` `v` `V`)
-  * [x] Native integral types (`i` `I` `l` `L` `j` `J`)
+  * [x] Fixed-size integers (`c` `C` `s` `S` `l` `L` `q` `Q` `n` `N` `v` `V`)
+  * [x] Native integers (`i` `I` `j` `J`)
   * [x] Native size modifiers (`_` `!`)
   * [x] Endianness modifiers (`<` `>`)
-  * [x] Floating-point types (`d` `f` `F` `e` `E` `g` `G`)
+  * [x] Floating-point values (`d` `f` `F` `e` `E` `g` `G`)
   * [x] BER-compressed integers (`w`)
   * [x] Binary strings (`a` `A` `Z`)
   * [x] UTF-8 characters / strings (`U` `U*`)

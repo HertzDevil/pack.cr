@@ -389,11 +389,11 @@ end
 
 module Pack
   # Unpacks a buffer of *bytes* according to the given format string *fmt*.
-  # Returns a `Tuple` of unpacked values, without flattening directives that
-  # contain repeat counts.
+  # Returns a `Tuple` of unpacked values, without flattening commands that
+  # contain repeat counts or globs.
   #
-  # *bytes* must be a `Slice(UInt8)`. *fmt* must be a string literal or constant
-  # representing a valid sequence of unpacking directives.
+  # *bytes* must be a `Bytes`. *fmt* must be a string literal or string constant
+  # representing a valid sequence of unpacking commands.
   #
   # ```
   # Pack.unpack(Bytes[0x01, 0xE8, 0x03, 0x05, 0xF5, 0xE1, 0x00], "csl>") # => {1_i8, 1000_i16, 100000000}
